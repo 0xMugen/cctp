@@ -2,10 +2,12 @@ import { type Call, cairo, type Uint256 } from 'starknet';
 import { getChainConfig, STARKNET_DOMAIN_ID } from './config.js';
 
 // Starknet CCTP contract function selectors
-// These need to be confirmed with actual Starknet CCTP contract implementation
+// Based on Circle's official Starknet CCTP documentation
 export const CCTP_SELECTORS = {
 	DEPOSIT_FOR_BURN: 'deposit_for_burn',
-	RECEIVE_MESSAGE: 'receive_message',
+	DEPOSIT_FOR_BURN_WITH_HOOK: 'deposit_for_burn_with_hook',
+	HANDLE_RECEIVE_FINALIZED_MESSAGE: 'handle_receive_finalized_message',
+	HANDLE_RECEIVE_UNFINALIZED_MESSAGE: 'handle_receive_unfinalized_message',
 	APPROVE: 'approve'
 } as const;
 
@@ -13,6 +15,8 @@ export interface StarknetDepositForBurnParams {
 	amount: bigint;
 	destinationDomain: number;
 	mintRecipient: string; // Address on destination chain (EVM or Solana)
+	maxFee?: bigint; // Maximum fee in USDC (defaults to 0 for standard transfers)
+	minFinalityThreshold?: number; // 1000 for fast transfer, 2000+ for standard (defaults to 1000)
 }
 
 export interface StarknetReceiveMessageParams {
@@ -28,30 +32,49 @@ export function toUint256(value: bigint): Uint256 {
 }
 
 /**
- * Convert an EVM address to felt (Starknet's native format)
- * EVM addresses are 20 bytes, felts are 252 bits
+ * Convert an EVM address to u256 for Starknet calldata
+ * EVM addresses are 20 bytes (160 bits), which exceeds u128 (128 bits)
+ * Must properly split into low (128 bits) and high (32 bits)
+ * Returns [low, high] as strings for calldata
  */
-export function evmAddressToFelt(address: string): string {
-	// Remove 0x prefix and ensure lowercase
+export function evmAddressToU256(address: string): [string, string] {
+	// Remove 0x prefix and parse as BigInt
 	const cleanAddress = address.toLowerCase().replace('0x', '');
-	// Pad to 64 characters (32 bytes) for consistency
-	return `0x${cleanAddress.padStart(64, '0')}`;
+	const addressBigInt = BigInt(`0x${cleanAddress}`);
+	// u256 is (low: u128, high: u128) - must properly split 160-bit EVM address
+	const u256 = cairo.uint256(addressBigInt);
+	return [u256.low.toString(), u256.high.toString()];
 }
 
 /**
- * Convert a Solana address (base58) to felt
- * Note: This is a simplified conversion - may need adjustment based on actual CCTP implementation
+ * Convert a Solana address (base58) to u256 for Starknet calldata
+ * Solana addresses are 32 bytes (256 bits), need both low and high
+ * Returns [low, high] as strings for calldata
  */
-export function solanaAddressToFelt(address: string): string {
+export function solanaAddressToU256(address: string): [string, string] {
 	// Solana addresses are 32 bytes when decoded from base58
 	// For now, we'll assume the address is already in hex format
 	// In production, you'd need to decode from base58
-	return `0x${address.padStart(64, '0')}`;
+	const cleanHex = address.replace('0x', '').padStart(64, '0');
+	const high = BigInt(`0x${cleanHex.slice(0, 32)}`);
+	const low = BigInt(`0x${cleanHex.slice(32)}`);
+	return [low.toString(), high.toString()];
 }
 
 /**
- * Build the deposit_for_burn call for Starknet
+ * TODO: Build the deposit_for_burn call for Starknet
  * Burns USDC on Starknet to mint on destination chain
+ *
+ * Function signature from Circle's starknet-cctp:
+ * fn deposit_for_burn(
+ *     amount: u256,
+ *     destination_domain: u32,
+ *     mint_recipient: u256,
+ *     burn_token: ContractAddress,
+ *     destination_caller: u256,  // 0 = any caller allowed
+ *     max_fee: u256,
+ *     min_finality_threshold: u32,  // 1000 = fast, 2000+ = standard
+ * )
  */
 export function buildStarknetBurnCall(params: StarknetDepositForBurnParams): Call {
 	const starknetConfig = getChainConfig(STARKNET_DOMAIN_ID);
@@ -67,15 +90,22 @@ export function buildStarknetBurnCall(params: StarknetDepositForBurnParams): Cal
 	// Convert amount to Uint256
 	const amountU256 = toUint256(params.amount);
 
-	// Convert recipient address based on destination chain type
-	let mintRecipientFelt: string;
+	// Convert recipient address to u256 based on destination chain type
+	let mintRecipientU256: [string, string];
 	if (destConfig.type === 'evm') {
-		mintRecipientFelt = evmAddressToFelt(params.mintRecipient);
+		mintRecipientU256 = evmAddressToU256(params.mintRecipient);
 	} else if (destConfig.type === 'solana') {
-		mintRecipientFelt = solanaAddressToFelt(params.mintRecipient);
+		mintRecipientU256 = solanaAddressToU256(params.mintRecipient);
 	} else {
 		throw new Error(`Cannot bridge from Starknet to ${destConfig.type}`);
 	}
+
+	const destinationCallerU256: [string, string] = ['0', '0'];
+
+	const maxFee = params.maxFee ?? BigInt(0);
+	const maxFeeU256 = toUint256(maxFee);
+
+	const minFinalityThreshold = params.minFinalityThreshold ?? 1000;
 
 	return {
 		contractAddress: starknetConfig.tokenMessenger,
@@ -84,7 +114,14 @@ export function buildStarknetBurnCall(params: StarknetDepositForBurnParams): Cal
 			amountU256.low.toString(),
 			amountU256.high.toString(),
 			params.destinationDomain.toString(),
-			mintRecipientFelt
+			mintRecipientU256[0],
+			mintRecipientU256[1],
+			starknetConfig.usdc,
+			destinationCallerU256[0],
+			destinationCallerU256[1],
+			maxFeeU256.low.toString(),
+			maxFeeU256.high.toString(),
+			minFinalityThreshold.toString()
 		]
 	};
 }
@@ -108,8 +145,9 @@ export function buildStarknetApproveCall(spender: string, amount: bigint): Call 
 }
 
 /**
- * Build the receive_message call for minting on Starknet
+ * Build the handle_receive_finalized_message call for minting on Starknet
  * Called when USDC is burned on source chain (EVM/Solana) and needs to be minted on Starknet
+ * Uses the finalized message handler for fully attested messages
  */
 export function buildStarknetMintCall(params: StarknetReceiveMessageParams): Call {
 	const starknetConfig = getChainConfig(STARKNET_DOMAIN_ID);
@@ -124,7 +162,7 @@ export function buildStarknetMintCall(params: StarknetReceiveMessageParams): Cal
 
 	return {
 		contractAddress: starknetConfig.messageTransmitter,
-		entrypoint: CCTP_SELECTORS.RECEIVE_MESSAGE,
+		entrypoint: CCTP_SELECTORS.HANDLE_RECEIVE_FINALIZED_MESSAGE,
 		calldata: [
 			messageBytes.length.toString(),
 			...messageBytes,

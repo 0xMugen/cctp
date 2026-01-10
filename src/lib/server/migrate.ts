@@ -165,6 +165,68 @@ export function calculateChecksum(content: string): string {
 	return crypto.createHash('sha256').update(content).digest('hex');
 }
 
+/**
+ * Split SQL content into individual statements, respecting dollar-quoted strings.
+ * Dollar quotes ($$...$$) can contain semicolons that should not be treated as statement terminators.
+ */
+export function splitSqlStatements(content: string): string[] {
+	const statements: string[] = [];
+	let currentStatement = '';
+	let inDollarQuote = false;
+	let dollarTag = '';
+	let i = 0;
+
+	while (i < content.length) {
+		const char = content[i];
+
+		if (char === '$') {
+			let tagEnd = i + 1;
+			while (tagEnd < content.length && content[tagEnd] !== '$' && /[a-zA-Z0-9_]/.test(content[tagEnd])) {
+				tagEnd++;
+			}
+
+			if (tagEnd < content.length && content[tagEnd] === '$') {
+				const tag = content.slice(i, tagEnd + 1); // e.g., "$$" or "$tag$"
+
+				if (!inDollarQuote) {
+					inDollarQuote = true;
+					dollarTag = tag;
+					currentStatement += tag;
+					i = tagEnd + 1;
+					continue;
+				} else if (tag === dollarTag) {
+					inDollarQuote = false;
+					currentStatement += tag;
+					dollarTag = '';
+					i = tagEnd + 1;
+					continue;
+				}
+			}
+		}
+
+		if (char === ';' && !inDollarQuote) {
+			currentStatement += char;
+			const trimmed = currentStatement.trim();
+			if (trimmed.length > 0 && trimmed !== ';') {
+				statements.push(trimmed);
+			}
+			currentStatement = '';
+			i++;
+			continue;
+		}
+
+		currentStatement += char;
+		i++;
+	}
+
+	const trimmed = currentStatement.trim();
+	if (trimmed.length > 0 && trimmed !== ';') {
+		statements.push(trimmed);
+	}
+
+	return statements;
+}
+
 export async function getAppliedMigrations(db: Db, schema = 'public'): Promise<MigrationRecord[]> {
 	return await db.execute<MigrationRecord>(
 		`SELECT * FROM ${schema}.migrations ORDER BY filename`,
@@ -195,10 +257,7 @@ export async function applyMigration(db: Db, filename: string, schema = 'public'
 		await db.execute(`SET search_path TO ${schema}`, []);
 	}
 
-	const statements = content
-		.split(';')
-		.map((stmt) => stmt.trim())
-		.filter((stmt) => stmt.length > 0);
+	const statements = splitSqlStatements(content);
 
 	for (const statement of statements) {
 		if (statement.trim()) {
@@ -459,10 +518,8 @@ export async function rollback(db: Db, steps: number = 1, schema = 'public'): Pr
 		}
 
 		const rollbackContent = fs.readFileSync(rollbackPath, 'utf8');
-		const statements = rollbackContent
-			.split(';')
-			.map((stmt) => stmt.trim())
-			.filter((stmt) => stmt.length > 0);
+		// Use the dollar-quote-aware splitter instead of naive split(';')
+		const statements = splitSqlStatements(rollbackContent);
 
 		console.log(`Rolling back migration: ${migration.filename}`);
 

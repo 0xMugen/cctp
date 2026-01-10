@@ -158,9 +158,7 @@ class AttestationWorker {
 		try {
 			const pending = await cctpService.getPendingAttestations();
 			for (const tx of pending) {
-				if (tx.messageHash) {
-					this.enqueueJob(tx.id, tx.messageHash, tx.attestationAttempts);
-				}
+				this.enqueueJob(tx.id, tx.messageHash || '', tx.attestationAttempts);
 			}
 		} catch (error) {
 			console.error('Error loading pending attestations:', error);

@@ -6,7 +6,7 @@ import {
 	STARKNET_DOMAIN_ID,
 	type ChainConfig
 } from './config.js';
-import { fetchAttestation, computeMessageHash, getTransferFees } from './attestation.js';
+import { fetchAttestation, computeMessageHash, getTransferFees, getMessageFromTx } from './attestation.js';
 import { buildDepositForBurnTx, buildReceiveMessageTx, type DepositForBurnParams } from './evm.js';
 import { buildStarknetBurnMulticall, buildStarknetMintCall } from './starknet.js';
 import { buildSolanaBurnInstruction, buildSolanaMintInstruction } from './solana.js';
@@ -191,10 +191,31 @@ export class CCTPService {
 		messageBytes?: string,
 		nonce?: string
 	): Promise<void> {
-		// Compute message hash if message bytes provided
+		const tx = await this.getTransaction(bridgeId);
+		if (!tx) {
+			throw new Error('Bridge transaction not found');
+		}
+
+		let finalMessageBytes = messageBytes;
+		let finalNonce = nonce;
 		let messageHash: string | null = null;
-		if (messageBytes) {
-			messageHash = computeMessageHash(messageBytes);
+
+		if (!finalMessageBytes) {
+			try {
+				const messageData = await getMessageFromTx(tx.sourceDomainId, txHash);
+				if (messageData) {
+					finalMessageBytes = messageData.message;
+					finalNonce = messageData.eventNonce;
+					console.log(`Fetched message from Circle API for tx ${txHash}`);
+				}
+			} catch (error) {
+				// Message may not be available yet - will be retried by attestation worker
+				console.log(`Message not yet available for tx ${txHash}, will retry later`);
+			}
+		}
+
+		if (finalMessageBytes) {
+			messageHash = computeMessageHash(finalMessageBytes);
 		}
 
 		await db.execute(
@@ -202,7 +223,7 @@ export class CCTPService {
 			 SET burn_tx_hash = $1, message_bytes = $2, message_hash = $3, nonce = $4,
 			     status = 'burned', updated_at = NOW()
 			 WHERE id = $5`,
-			[txHash, messageBytes || null, messageHash, nonce || null, bridgeId]
+			[txHash, finalMessageBytes || null, messageHash, finalNonce || null, bridgeId]
 		);
 	}
 
@@ -252,12 +273,51 @@ export class CCTPService {
 	 * Check and update attestation for a transaction
 	 */
 	async checkAttestation(bridgeId: string): Promise<string | null> {
-		const tx = await this.getTransaction(bridgeId);
-		if (!tx || !tx.messageHash) return null;
+		let tx = await this.getTransaction(bridgeId);
+		if (!tx) return null;
 
-		// Don't check if already attested or completed
 		if (tx.attestationStatus === 'complete' || tx.status === 'completed') {
 			return tx.attestation;
+		}
+
+		if (!tx.messageHash && tx.burnTxHash) {
+			try {
+				const messageData = await getMessageFromTx(tx.sourceDomainId, tx.burnTxHash);
+				if (messageData) {
+					const messageHash = computeMessageHash(messageData.message);
+
+					if (messageData.attestation) {
+						await db.execute(
+							`UPDATE bridge_transactions
+							 SET message_bytes = $1, message_hash = $2, nonce = $3,
+							     attestation = $4, attestation_status = 'complete', status = 'attested',
+							     updated_at = NOW()
+							 WHERE id = $5`,
+							[messageData.message, messageHash, messageData.eventNonce, messageData.attestation, bridgeId]
+						);
+						console.log(`[CCTP] Got message AND attestation for tx ${tx.burnTxHash}`);
+						return messageData.attestation;
+					} else {
+						await db.execute(
+							`UPDATE bridge_transactions
+							 SET message_bytes = $1, message_hash = $2, nonce = $3, updated_at = NOW()
+							 WHERE id = $4`,
+							[messageData.message, messageHash, messageData.eventNonce, bridgeId]
+						);
+						tx = await this.getTransaction(bridgeId);
+						if (!tx) return null;
+						console.log(`[CCTP] Fetched message for tx ${tx.burnTxHash}, hash: ${messageHash}`);
+					}
+				}
+			} catch (error) {
+				console.log(`[CCTP] Message not yet available for bridge ${bridgeId}:`, error);
+				return null;
+			}
+		}
+
+		// Still no message hash - can't check attestation
+		if (!tx.messageHash) {
+			return null;
 		}
 
 		try {
@@ -315,6 +375,7 @@ export class CCTPService {
 
 	/**
 	 * Get all pending attestations for polling
+	 * Includes transactions without message_hash - checkAttestation will fetch it
 	 */
 	async getPendingAttestations(): Promise<BridgeTransaction[]> {
 		return db.execute<BridgeTransaction>(
@@ -329,7 +390,7 @@ export class CCTPService {
 			 FROM bridge_transactions
 			 WHERE attestation_status = 'pending'
 			   AND status = 'burned'
-			   AND message_hash IS NOT NULL
+			   AND burn_tx_hash IS NOT NULL
 			   AND (last_attestation_check IS NULL OR last_attestation_check < NOW() - INTERVAL '5 seconds')
 			 ORDER BY created_at ASC
 			 LIMIT 100`,

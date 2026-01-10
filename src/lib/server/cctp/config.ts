@@ -96,10 +96,9 @@ export const CHAINS: Record<number, ChainConfig> = {
 		domainId: DOMAIN_IDS.STARKNET,
 		name: 'Starknet',
 		type: 'starknet',
-		// Starknet CCTP contract addresses (to be confirmed)
-		tokenMessenger: '0x06a1d71e3815f63282f70e35ff3dc2e8cbb6c7e90880bb1e12a1c30ecb92b3d5',
-		messageTransmitter: '0x05ab68926f5c46e33a4b39f6fb1c99a6e8d11ec0a6a7f3c8c3b1e3a5e0d3b2c1',
-		usdc: '0x053c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8',
+		tokenMessenger: '0x07d421B9cA8aA32DF259965cDA8ACb93F7599F69209A41872AE84638B2A20F2a',
+		messageTransmitter: '0x02EBB5777B6dD8B26ea11D68Fdf1D2c85cD2099335328Be845a28c77A8AEf183',
+		usdc: '0x033068F6539f8e6e6b131e6B2B814e6c34A5224bC66947c47DaB9dFeE93b35fb',
 		explorerUrl: 'https://starkscan.co'
 	}
 };
@@ -131,10 +130,9 @@ export const TESTNET_CHAINS: Record<number, ChainConfig> = {
 		domainId: DOMAIN_IDS.STARKNET,
 		name: 'Starknet Sepolia',
 		type: 'starknet',
-		// Testnet addresses (to be confirmed)
-		tokenMessenger: '0x0',
-		messageTransmitter: '0x0',
-		usdc: '0x0',
+		tokenMessenger: '0x04bDdE1E09a4B09a2F95d893D94a967b7717eB85A3f6dEcA8c080Ee01fBc3370',
+		messageTransmitter: '0x04db7926C64f1f32a840F3Fa95cB551f3801a3600Bae87aF87807A54DCE12Fe8',
+		usdc: '0x0512feAc6339Ff7889822cb5aA2a86C848e9D392bB0E3E237C008674feeD8343',
 		explorerUrl: 'https://sepolia.starkscan.co'
 	}
 };
