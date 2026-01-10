@@ -1,0 +1,166 @@
+# Docker Build and Push Workflow
+#
+# This workflow is part of a CI/CD pipeline that:
+# 1. Runs linting checks (calls lint.yml)
+# 2. Runs test suite (calls test.yml)
+# 3. Builds and publishes Docker images using Nix (only if tests pass)
+#
+# The Docker image is published to GitHub Container Registry with the following tags:
+#
+# Tagging Strategy:
+# - Main branch pushes:
+#   - `latest` (always points to the most recent main build)
+#   - `nightly-YYMMDD-HHmm-COMMIT_SHA` (time-stamped nightly builds)
+# - Pull request builds:
+#   - `BRANCH_NAME-YYMMDD-HHmm-COMMIT_SHA` (branch-specific builds)
+#
+# Prerequisites:
+# - Repository must have a flake.nix with dockerImage output
+# - GitHub Actions must have GITHUB_TOKEN with packages:write permission
+# - All linting and tests must pass before Docker build
+#
+# Usage:
+#   docker pull ghcr.io/OWNER/REPO:latest
+#   docker run -p 3000:3000 -e DATABASE_URL=your_db_url ghcr.io/OWNER/REPO:latest
+
+name: Build and Push Docker Image
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+env:
+  GHCR_REGISTRY: ghcr.io
+
+jobs:
+  # Run linting and testing before building Docker image
+  lint:
+    uses: ./.github/workflows/lint.yml
+
+  test:
+    uses: ./.github/workflows/test.yml
+
+  build-and-push:
+    needs: [lint, test] # Only run if lint and test pass
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/determinate-nix-action@main
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.GHCR_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image metadata
+        id: meta
+        run: |
+          # Get commit SHA (short form)
+          COMMIT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+
+          # Get current timestamp in YYMMDD-HHmm format
+          TIMESTAMP=$(date -u +"%y%m%d-%H%M")
+
+          # Create lowercase image name for Docker registry
+          IMAGE_NAME=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+
+          # Determine tags based on event type
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
+            # Main branch push: latest and nightly tags
+            TAGS="${{ env.GHCR_REGISTRY }}/${IMAGE_NAME}:latest"
+            TAGS="${TAGS},${{ env.GHCR_REGISTRY }}/${IMAGE_NAME}:nightly-${TIMESTAMP}-${COMMIT_SHA}"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            # Pull request: branch-based tag
+            BRANCH_NAME="${{ github.head_ref }}"
+            # Sanitize branch name for Docker tag (replace special chars with hyphens)
+            BRANCH_NAME=$(echo "$BRANCH_NAME" | sed 's/[^a-zA-Z0-9.-]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
+            TAGS="${{ env.GHCR_REGISTRY }}/${IMAGE_NAME}:${BRANCH_NAME}-${TIMESTAMP}-${COMMIT_SHA}"
+          else
+            # Fallback for other events
+            TAGS="${{ env.GHCR_REGISTRY }}/${IMAGE_NAME}:${TIMESTAMP}-${COMMIT_SHA}"
+          fi
+
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
+          echo "Generated tags: ${TAGS}"
+
+      - name: Build Docker image with Nix
+        run: |
+          echo "Building Docker image using Nix..."
+          nix build .#dockerImage --impure --print-out-paths > docker-image-path.txt
+          IMAGE_PATH=$(cat docker-image-path.txt)
+          echo "Docker image built at: ${IMAGE_PATH}"
+          echo "image-path=${IMAGE_PATH}" >> $GITHUB_ENV
+
+      - name: Load and tag Docker image
+        run: |
+          echo "Loading Docker image from Nix build..."
+          docker load < ${{ env.image-path }}
+
+          # Get the loaded image name and tag
+          LOADED_IMAGE=$(docker images --format "table {{.Repository}}:{{.Tag}}" | grep cctp | grep -v REPOSITORY | head -1)
+          echo "Loaded image: ${LOADED_IMAGE}"
+
+          # Tag the image with all target tags
+          IFS=',' read -ra TAG_ARRAY <<< "${{ steps.meta.outputs.tags }}"
+          for tag in "${TAG_ARRAY[@]}"; do
+            echo "Tagging ${LOADED_IMAGE} as ${tag}"
+            docker tag "${LOADED_IMAGE}" "${tag}"
+          done
+
+      - name: Push Docker image
+        id: push
+        run: |
+          # Push all tags and capture digest
+          IFS=',' read -ra TAG_ARRAY <<< "${{ steps.meta.outputs.tags }}"
+          DIGEST=""
+          for tag in "${TAG_ARRAY[@]}"; do
+            echo "Pushing ${tag}"
+            OUTPUT=$(docker push "${tag}")
+            if [[ -z "$DIGEST" ]]; then
+              # Extract digest from first push
+              DIGEST=$(echo "$OUTPUT" | grep -o 'sha256:[a-f0-9]\{64\}' | head -1)
+            fi
+          done
+          echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
+          echo "Pushed with digest: ${DIGEST}"
+
+      - name: Output image information
+        run: |
+          echo "## 🚀 CI/CD Pipeline Completed Successfully" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Linting** - Code quality checks passed" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Testing** - All tests passed" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Docker Build** - Image built and published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Docker Image Published 🐳" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The following tags were published:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          IFS=',' read -ra TAG_ARRAY <<< "${{ steps.meta.outputs.tags }}"
+          for tag in "${TAG_ARRAY[@]}"; do
+            echo "- \`${tag}\`" >> $GITHUB_STEP_SUMMARY
+          done
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Usage" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          # Show the first tag as example
+          FIRST_TAG=$(echo "${{ steps.meta.outputs.tags }}" | cut -d',' -f1)
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${FIRST_TAG}" >> $GITHUB_STEP_SUMMARY
+          echo "docker run -p 3000:3000 -e DATABASE_URL=your_db_url ${FIRST_TAG}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
