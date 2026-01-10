@@ -36,10 +36,13 @@
         PGUSER = ""; # Clear PGUSER to use default postgres user
       };
 
-      # Run SvelteKit development server
+      # Run SvelteKit development server with explicit pnpm path
       settings.processes.svelte-dev = {
-        command = "pnpm run dev";
-        working_dir = "$PRJ_ROOT";
+        command = toString (pkgs.writeShellScript "svelte-dev" ''
+          export PATH="${pkgs.nodejs_24}/bin:${pkgs.pnpm}/bin:$PATH"
+          cd "$PRJ_ROOT"
+          exec pnpm run dev
+        '');
         depends_on."pg1".condition = "process_healthy";
         environment = {
           PGHOST = "localhost";
