@@ -1,0 +1,219 @@
+import { type Call, cairo, type Uint256 } from 'starknet';
+import { getChainConfig, STARKNET_DOMAIN_ID } from './config.js';
+
+// Starknet CCTP contract function selectors
+// These need to be confirmed with actual Starknet CCTP contract implementation
+export const CCTP_SELECTORS = {
+	DEPOSIT_FOR_BURN: 'deposit_for_burn',
+	RECEIVE_MESSAGE: 'receive_message',
+	APPROVE: 'approve'
+} as const;
+
+export interface StarknetDepositForBurnParams {
+	amount: bigint;
+	destinationDomain: number;
+	mintRecipient: string; // Address on destination chain (EVM or Solana)
+}
+
+export interface StarknetReceiveMessageParams {
+	message: string; // Hex encoded message bytes
+	attestation: string; // Hex encoded attestation
+}
+
+/**
+ * Convert a bigint to Starknet's Uint256 format
+ */
+export function toUint256(value: bigint): Uint256 {
+	return cairo.uint256(value);
+}
+
+/**
+ * Convert an EVM address to felt (Starknet's native format)
+ * EVM addresses are 20 bytes, felts are 252 bits
+ */
+export function evmAddressToFelt(address: string): string {
+	// Remove 0x prefix and ensure lowercase
+	const cleanAddress = address.toLowerCase().replace('0x', '');
+	// Pad to 64 characters (32 bytes) for consistency
+	return `0x${cleanAddress.padStart(64, '0')}`;
+}
+
+/**
+ * Convert a Solana address (base58) to felt
+ * Note: This is a simplified conversion - may need adjustment based on actual CCTP implementation
+ */
+export function solanaAddressToFelt(address: string): string {
+	// Solana addresses are 32 bytes when decoded from base58
+	// For now, we'll assume the address is already in hex format
+	// In production, you'd need to decode from base58
+	return `0x${address.padStart(64, '0')}`;
+}
+
+/**
+ * Build the deposit_for_burn call for Starknet
+ * Burns USDC on Starknet to mint on destination chain
+ */
+export function buildStarknetBurnCall(params: StarknetDepositForBurnParams): Call {
+	const starknetConfig = getChainConfig(STARKNET_DOMAIN_ID);
+	if (!starknetConfig) {
+		throw new Error('Starknet chain config not found');
+	}
+
+	const destConfig = getChainConfig(params.destinationDomain);
+	if (!destConfig) {
+		throw new Error(`Unknown destination domain: ${params.destinationDomain}`);
+	}
+
+	// Convert amount to Uint256
+	const amountU256 = toUint256(params.amount);
+
+	// Convert recipient address based on destination chain type
+	let mintRecipientFelt: string;
+	if (destConfig.type === 'evm') {
+		mintRecipientFelt = evmAddressToFelt(params.mintRecipient);
+	} else if (destConfig.type === 'solana') {
+		mintRecipientFelt = solanaAddressToFelt(params.mintRecipient);
+	} else {
+		throw new Error(`Cannot bridge from Starknet to ${destConfig.type}`);
+	}
+
+	return {
+		contractAddress: starknetConfig.tokenMessenger,
+		entrypoint: CCTP_SELECTORS.DEPOSIT_FOR_BURN,
+		calldata: [
+			amountU256.low.toString(),
+			amountU256.high.toString(),
+			params.destinationDomain.toString(),
+			mintRecipientFelt
+		]
+	};
+}
+
+/**
+ * Build the ERC20 approve call for Starknet USDC
+ */
+export function buildStarknetApproveCall(spender: string, amount: bigint): Call {
+	const starknetConfig = getChainConfig(STARKNET_DOMAIN_ID);
+	if (!starknetConfig) {
+		throw new Error('Starknet chain config not found');
+	}
+
+	const amountU256 = toUint256(amount);
+
+	return {
+		contractAddress: starknetConfig.usdc,
+		entrypoint: CCTP_SELECTORS.APPROVE,
+		calldata: [spender, amountU256.low.toString(), amountU256.high.toString()]
+	};
+}
+
+/**
+ * Build the receive_message call for minting on Starknet
+ * Called when USDC is burned on source chain (EVM/Solana) and needs to be minted on Starknet
+ */
+export function buildStarknetMintCall(params: StarknetReceiveMessageParams): Call {
+	const starknetConfig = getChainConfig(STARKNET_DOMAIN_ID);
+	if (!starknetConfig) {
+		throw new Error('Starknet chain config not found');
+	}
+
+	// Message and attestation need to be converted to calldata format
+	// This depends on the actual Starknet CCTP contract implementation
+	const messageBytes = hexToFeltArray(params.message);
+	const attestationBytes = hexToFeltArray(params.attestation);
+
+	return {
+		contractAddress: starknetConfig.messageTransmitter,
+		entrypoint: CCTP_SELECTORS.RECEIVE_MESSAGE,
+		calldata: [
+			messageBytes.length.toString(),
+			...messageBytes,
+			attestationBytes.length.toString(),
+			...attestationBytes
+		]
+	};
+}
+
+/**
+ * Convert hex string to array of felts (for Starknet calldata)
+ * Each felt can hold up to 31 bytes
+ */
+export function hexToFeltArray(hex: string): string[] {
+	// Remove 0x prefix
+	const cleanHex = hex.replace('0x', '');
+
+	// Split into 62-character chunks (31 bytes each)
+	const chunks: string[] = [];
+	for (let i = 0; i < cleanHex.length; i += 62) {
+		const chunk = cleanHex.slice(i, i + 62);
+		chunks.push(`0x${chunk}`);
+	}
+
+	return chunks;
+}
+
+/**
+ * Parse MessageSent event from Starknet transaction receipt
+ * Note: This is a placeholder - actual implementation depends on Starknet CCTP contract events
+ */
+export function parseStarknetMessageEvent(
+	events: Array<{ keys: string[]; data: string[] }>
+): {
+	message: string;
+	nonce: bigint;
+} | null {
+	// Look for the MessageSent event
+	// Event structure depends on actual Starknet CCTP contract
+	for (const event of events) {
+		// Check if this is a MessageSent event
+		// The event key would be the selector of the event
+		// This is a placeholder - needs actual event structure
+		if (event.keys.length > 0) {
+			try {
+				// Extract message and nonce from event data
+				// Actual parsing depends on contract event structure
+				const nonce = BigInt(event.data[0] || '0');
+				const message = event.data.slice(1).join('');
+
+				return {
+					message: `0x${message}`,
+					nonce
+				};
+			} catch {
+				// Not the event we're looking for
+			}
+		}
+	}
+
+	return null;
+}
+
+/**
+ * Build multi-call for approve + depositForBurn in a single transaction
+ */
+export function buildStarknetBurnMulticall(params: StarknetDepositForBurnParams): Call[] {
+	const starknetConfig = getChainConfig(STARKNET_DOMAIN_ID);
+	if (!starknetConfig) {
+		throw new Error('Starknet chain config not found');
+	}
+
+	const approveCall = buildStarknetApproveCall(starknetConfig.tokenMessenger, params.amount);
+	const burnCall = buildStarknetBurnCall(params);
+
+	return [approveCall, burnCall];
+}
+
+/**
+ * Get the estimated gas for a Starknet transaction
+ * Returns fee in WEI (ETH on Starknet)
+ */
+export async function estimateStarknetFee(_calls: Call[]): Promise<bigint> {
+	// In production, you'd use the Starknet provider to estimate
+	// For now, return a placeholder
+	// const account = new Account(provider, address, privateKey);
+	// const estimation = await account.estimateInvokeFee(calls);
+	// return estimation.overall_fee;
+
+	// Placeholder: 0.001 ETH
+	return BigInt('1000000000000000');
+}
