@@ -5,7 +5,7 @@ import { startManagementServer } from '$lib/server/management';
 import { migrateWithLock } from '$lib/server/migrate';
 import { db } from '$lib/server/db';
 import { setMigrationComplete, getMigrationState } from '$lib/server/migration-state';
-import { startAttestationPolling, stopAttestationPolling } from '$lib/server/cctp/polling';
+import { attestationWorker } from '$lib/server/cctp/attestation-worker';
 
 // Validate database connection on server startup
 let connectionValidated = false;
@@ -57,9 +57,10 @@ async function ensureDatabaseConnection(): Promise<void> {
 							} else {
 								console.log('✅ No pending migrations');
 							}
-							// Start CCTP attestation polling after migrations are complete
-							const pollingInterval = parseInt(env.ATTESTATION_POLL_INTERVAL || '5000');
-							startAttestationPolling(pollingInterval);
+							// Start CCTP attestation worker after migrations are complete
+							attestationWorker.start().catch((error) => {
+								console.error('Failed to start attestation worker:', error);
+							});
 						} else {
 							const error = migrationResult.error || new Error('Unknown migration error');
 							setMigrationComplete(false, error);
@@ -72,9 +73,10 @@ async function ensureDatabaseConnection(): Promise<void> {
 				} else if (!AUTO_MIGRATE) {
 					console.log('ℹ️  Auto-migration disabled (AUTO_MIGRATE=false)');
 					setMigrationComplete(true); // Mark as complete since we're skipping
-					// Start CCTP attestation polling
-					const pollingInterval = parseInt(env.ATTESTATION_POLL_INTERVAL || '5000');
-					startAttestationPolling(pollingInterval);
+					// Start CCTP attestation worker
+					attestationWorker.start().catch((error) => {
+						console.error('Failed to start attestation worker:', error);
+					});
 				}
 
 				return;
@@ -185,7 +187,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 // Graceful shutdown handling
 process.on('SIGINT', async () => {
 	console.log('Received SIGINT, shutting down...');
-	stopAttestationPolling();
+	await attestationWorker.stop();
 	try {
 		await pool.end();
 		console.log('Database connections closed');
@@ -197,7 +199,7 @@ process.on('SIGINT', async () => {
 
 process.on('SIGTERM', async () => {
 	console.log('Received SIGTERM, shutting down...');
-	stopAttestationPolling();
+	await attestationWorker.stop();
 	try {
 		await pool.end();
 		console.log('Database connections closed');
