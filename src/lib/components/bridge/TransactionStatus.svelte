@@ -60,13 +60,8 @@
 
 {#if $activeBridgeId}
 	<div class="mt-6 rounded-xl bg-gray-800 p-6">
-		<div class="mb-4 flex items-center justify-between">
+		<div class="mb-4">
 			<h3 class="text-lg font-semibold text-white">Transaction Status</h3>
-			{#if $bridgeStep === 'completed' || $bridgeStep === 'failed'}
-				<button onclick={() => resetBridge()} class="text-sm text-blue-400 hover:text-blue-300">
-					New Bridge
-				</button>
-			{/if}
 		</div>
 
 		<!-- Progress Steps -->
@@ -132,7 +127,7 @@
 		<!-- Success Message -->
 		{#if $bridgeStep === 'completed'}
 			<div class="mt-4 rounded-lg bg-green-500/20 p-3 text-sm text-green-400">
-				Bridge completed successfully! USDC has been minted on the destination chain.
+				Bridge completed successfully!
 			</div>
 		{/if}
 	</div>

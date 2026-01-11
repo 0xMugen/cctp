@@ -21,13 +21,15 @@
 		swapChains,
 		fetchQuote,
 		getBridgeStepLabel,
-		isFastTransfer
+		isFastTransfer,
+		resetBridge
 	} from '$lib/stores/bridge';
 	import { evmConnected } from '$lib/stores/evm';
 	import { starknetConnected } from '$lib/stores/starknet';
 	import { executeBridge } from '$lib/bridge/executor';
 
 	let quoteTimeout: ReturnType<typeof setTimeout> | null = null;
+	let showBridgeAgain = $state(false);
 
 	// Fetch quote when inputs change (debounced)
 	$effect(() => {
@@ -38,6 +40,17 @@
 			quoteTimeout = setTimeout(() => {
 				fetchQuote();
 			}, 500);
+		}
+	});
+
+	$effect(() => {
+		if ($bridgeStep === 'completed') {
+			const timeout = setTimeout(() => {
+				showBridgeAgain = true;
+			}, 2000);
+			return () => clearTimeout(timeout);
+		} else {
+			showBridgeAgain = false;
 		}
 	});
 
@@ -210,13 +223,22 @@
 					{/if}
 
 					<!-- Bridge Button -->
-					<button
-						onclick={handleBridge}
-						disabled={!canBridge}
-						class="mt-6 w-full rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 py-4 text-lg font-semibold transition hover:from-blue-500 hover:to-purple-500 disabled:cursor-not-allowed disabled:from-gray-600 disabled:to-gray-600 disabled:opacity-50"
-					>
-						{getBridgeStepLabel($bridgeStep)}
-					</button>
+					{#if showBridgeAgain}
+						<button
+							onclick={() => resetBridge()}
+							class="mt-6 w-full rounded-lg bg-gradient-to-r from-green-600 to-emerald-600 py-4 text-lg font-semibold transition hover:from-green-500 hover:to-emerald-500"
+						>
+							Bridge Again
+						</button>
+					{:else}
+						<button
+							onclick={handleBridge}
+							disabled={!canBridge}
+							class="mt-6 w-full rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 py-4 text-lg font-semibold transition hover:from-blue-500 hover:to-purple-500 disabled:cursor-not-allowed disabled:from-gray-600 disabled:to-gray-600 disabled:opacity-50"
+						>
+							{getBridgeStepLabel($bridgeStep)}
+						</button>
+					{/if}
 				</div>
 
 				<!-- Transaction Status -->
