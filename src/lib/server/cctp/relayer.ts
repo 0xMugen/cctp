@@ -2,6 +2,7 @@ import {
 	createWalletClient,
 	createPublicClient,
 	http,
+	parseAbiItem,
 	type Chain,
 	type Hex,
 	type Address,
@@ -203,4 +204,59 @@ export async function getRelayerBalance(domainId: number): Promise<bigint> {
 	}
 
 	return publicClient.getBalance({ address });
+}
+
+// MessageReceived event ABI for log queries
+const MESSAGE_RECEIVED_EVENT = parseAbiItem(
+	'event MessageReceived(address indexed caller, uint32 sourceDomain, uint64 indexed nonce, bytes32 sender, bytes messageBody)'
+);
+
+/**
+ * Find an existing mint transaction by searching for MessageReceived events
+ * This is used to recover when a mint succeeded but the DB update failed
+ */
+export async function findExistingMintTx(
+	domainId: number,
+	messageTransmitter: Address,
+	sourceDomain: number,
+	nonce: bigint
+): Promise<Hex | null> {
+	const publicClient = getPublicClient(domainId);
+
+	try {
+		// Get the current block number for the search range
+		const currentBlock = await publicClient.getBlockNumber();
+		// Search last 10000 blocks (should cover recent transactions)
+		const fromBlock = currentBlock > 10000n ? currentBlock - 10000n : 0n;
+
+		// Query for MessageReceived events with this nonce
+		// Note: nonce is indexed (topic3), sourceDomain is not indexed (in data)
+		const logs = await publicClient.getLogs({
+			address: messageTransmitter,
+			event: MESSAGE_RECEIVED_EVENT,
+			args: {
+				nonce: nonce
+			},
+			fromBlock,
+			toBlock: currentBlock
+		});
+
+		// Filter by sourceDomain (not indexed, so we filter in code)
+		for (const log of logs) {
+			if (log.args.sourceDomain === sourceDomain) {
+				console.log(
+					`[Relayer] Found existing mint tx: ${log.transactionHash} for nonce ${nonce}`
+				);
+				return log.transactionHash;
+			}
+		}
+
+		console.log(
+			`[Relayer] No existing mint tx found for nonce ${nonce} from domain ${sourceDomain}`
+		);
+		return null;
+	} catch (error) {
+		console.error(`[Relayer] Error searching for existing mint tx:`, error);
+		return null;
+	}
 }

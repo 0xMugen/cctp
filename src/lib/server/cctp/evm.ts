@@ -40,6 +40,28 @@ export interface ParsedMessageSentEvent {
 	nonce: bigint;
 }
 
+export interface ParsedMessageInfo {
+	sourceDomain: number;
+	destDomain: number;
+	nonce: bigint;
+}
+
+/**
+ * Parse source domain, destination domain, and nonce from a CCTP message
+ * Message format: version(4) + sourceDomain(4) + destDomain(4) + nonce(8) + ...
+ */
+export function parseNonceFromMessage(message: Hex): ParsedMessageInfo {
+	// Remove 0x prefix for easier parsing
+	const hex = message.slice(2);
+	// Bytes 4-8: source domain (4 bytes)
+	const sourceDomain = parseInt(hex.slice(8, 16), 16);
+	// Bytes 8-12: dest domain (4 bytes)
+	const destDomain = parseInt(hex.slice(16, 24), 16);
+	// Bytes 12-20: nonce (8 bytes)
+	const nonce = BigInt('0x' + hex.slice(24, 40));
+	return { sourceDomain, destDomain, nonce };
+}
+
 /**
  * Convert an address to bytes32 format for CCTP
  * Pads the address to 32 bytes (left-padded with zeros)

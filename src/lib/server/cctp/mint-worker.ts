@@ -1,7 +1,8 @@
 import type { PoolClient } from 'pg';
 import { pool } from '../database.js';
 import { cctpService } from './service.js';
-import { executeMint, isRelayerEnabled } from './relayer.js';
+import { executeMint, isRelayerEnabled, findExistingMintTx } from './relayer.js';
+import { parseNonceFromMessage } from './evm.js';
 import type { Address, Hex } from 'viem';
 
 interface MintJob {
@@ -271,6 +272,12 @@ class MintWorker {
 	 * Process a single mint job
 	 */
 	private async processJob(job: MintJob): Promise<void> {
+		// Store transaction info for recovery in case of errors
+		let transactionInfo: {
+			messageBytes: string;
+			messageTransmitter: Address;
+		} | null = null;
+
 		try {
 			// Get transaction details
 			const result = await cctpService.getTransactionStatus(job.id);
@@ -305,6 +312,14 @@ class MintWorker {
 				return;
 			}
 
+			// Store info needed for recovery
+			if (transaction.messageBytes) {
+				transactionInfo = {
+					messageBytes: transaction.messageBytes,
+					messageTransmitter: mintTxData.evm.to as Address
+				};
+			}
+
 			const { to, data } = mintTxData.evm;
 
 			// Execute the mint
@@ -332,13 +347,51 @@ class MintWorker {
 				}
 			}
 		} catch (error) {
+			const errorMsg = error instanceof Error ? error.message : 'Unknown error';
 			console.error(`Error processing mint for ${job.id}:`, error);
+
+			// Check if this is a "Nonce already used" error
+			// This means the mint was already executed on-chain but we failed to record it
+			if (errorMsg.includes('Nonce already used') && transactionInfo) {
+				console.log(`[Mint] Detected 'Nonce already used' for ${job.id}, attempting recovery...`);
+
+				try {
+					const { sourceDomain, nonce } = parseNonceFromMessage(
+						transactionInfo.messageBytes as Hex
+					);
+
+					// Try to find the existing mint transaction on-chain
+					const existingTxHash = await findExistingMintTx(
+						job.destDomainId,
+						transactionInfo.messageTransmitter,
+						sourceDomain,
+						nonce
+					);
+
+					if (existingTxHash) {
+						// Found it! Record and complete
+						await cctpService.recordMintTx(job.id, existingTxHash);
+						this.jobs.delete(job.id);
+						console.log(`✅ Recovered existing mint for ${job.id}: ${existingTxHash}`);
+						return;
+					}
+
+					// Couldn't find the tx in recent blocks, but nonce is definitely used
+					// Mark as completed with a placeholder hash since the mint did happen
+					const placeholderHash = `0x${'0'.repeat(64)}` as Hex;
+					await cctpService.recordMintTx(job.id, placeholderHash);
+					this.jobs.delete(job.id);
+					console.log(`✅ Mint already executed for ${job.id} (nonce used on-chain, tx not found in recent blocks)`);
+					return;
+				} catch (recoveryError) {
+					console.error(`[Mint] Recovery failed for ${job.id}:`, recoveryError);
+				}
+			}
 
 			// Retry with backoff on error
 			job.attempts++;
 			if (job.attempts >= this.MAX_ATTEMPTS) {
 				this.jobs.delete(job.id);
-				const errorMsg = error instanceof Error ? error.message : 'Unknown error';
 				await cctpService.markFailed(job.id, `Mint failed: ${errorMsg}`);
 				console.error(`❌ Mint failed for ${job.id}: ${errorMsg}`);
 			} else {
