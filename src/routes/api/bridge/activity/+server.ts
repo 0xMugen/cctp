@@ -58,7 +58,6 @@ export const GET: RequestHandler = async ({ url }) => {
 			return [addr];
 		});
 
-		console.log('[Activity API] Query addresses (normalized):', addresses);
 
 		if (addresses.length === 0) {
 			return json({ error: 'At least one address is required' }, { status: 400 });
@@ -78,7 +77,6 @@ export const GET: RequestHandler = async ({ url }) => {
 			[...addresses, ...addresses]
 		);
 		const total = parseInt(countResult[0]?.count || '0', 10);
-		console.log(`[Activity API] Found ${total} transactions for addresses`);
 
 		// Get transactions with pagination (only those with burn_tx_hash)
 		const limitParam = addresses.length * 2 + 1;
@@ -100,18 +98,19 @@ export const GET: RequestHandler = async ({ url }) => {
 		);
 
 		// Build response with mintTxData for claimable transactions
-		// Process transactions - check for Circle auto-mint on Starknet destinations
+		// Only check Circle auto-mint for non-completed Starknet destinations
 		const enrichedTransactions = await Promise.all(
 			transactions.map(async (tx) => {
 				let status = tx.status;
 				let mintTxHash = tx.mintTxHash;
 				const destConfig = getChainConfig(tx.destDomainId);
 
-				// For Starknet destinations with attested status, check if Circle auto-minted
+				// For Starknet destinations with attested status (not completed), check if Circle auto-minted
 				if (
 					destConfig?.type === 'starknet' &&
 					tx.status === 'attested' &&
-					tx.burnTxHash
+					tx.burnTxHash &&
+					!tx.mintTxHash // Only check if not already completed
 				) {
 					try {
 						const { delivered } = await checkMessageDelivered(
@@ -149,8 +148,6 @@ export const GET: RequestHandler = async ({ url }) => {
 				};
 
 				// Add mintTxData for claimable transactions (attested status + EVM destination only)
-				console.log(`[Activity] tx ${tx.id}: status=${status}, destType=${destConfig?.type}`);
-
 				if (status === 'attested' && tx.attestation && tx.messageBytes && destConfig?.type === 'evm') {
 					try {
 						const mintTxData = buildReceiveMessageTx(
@@ -159,7 +156,6 @@ export const GET: RequestHandler = async ({ url }) => {
 							tx.attestation as Hex
 						);
 						result.mintTxData = { evm: mintTxData };
-						console.log(`[Activity] tx ${tx.id}: Built mintTxData successfully`);
 					} catch (error) {
 						console.error(`Failed to build mintTxData for ${tx.id}:`, error);
 					}

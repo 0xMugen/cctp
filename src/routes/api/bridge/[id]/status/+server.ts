@@ -10,22 +10,10 @@ import { checkMessageDelivered } from '$lib/server/cctp/attestation.js';
  */
 function willAutoMint(destDomainId: number): boolean {
 	const destConfig = getChainConfig(destDomainId);
-	if (!destConfig) {
-		console.log(`[Status] No config for domain ${destDomainId}`);
-		return false;
-	}
+	if (!destConfig) return false;
 
-	if (destConfig.type === 'evm') {
-		// EVM chains require manual mint by user (no relayer)
-		return false;
-	} else if (destConfig.type === 'starknet') {
-		// Starknet has Circle-subsidized auto-mint in CCTP V2
-		// User doesn't need to sign a mint transaction
-		console.log(`[Status] Starknet destination - Circle auto-mint enabled`);
-		return true;
-	}
-	console.log(`[Status] Unknown chain type: ${destConfig.type}`);
-	return false;
+	// Starknet has Circle-subsidized auto-mint in CCTP V2
+	return destConfig.type === 'starknet';
 }
 
 /**
@@ -51,26 +39,38 @@ export const GET: RequestHandler = async ({ params }) => {
 		const destConfig = getChainConfig(transaction.destDomainId);
 		const relayerWillMint = willAutoMint(transaction.destDomainId);
 
-		// For Starknet destinations with Circle auto-mint, check if delivery completed
-		if (
-			destConfig?.type === 'starknet' &&
-			transaction.status === 'attested' &&
-			transaction.burnTxHash
-		) {
-			const { delivered } = await checkMessageDelivered(
-				transaction.sourceDomainId,
-				transaction.burnTxHash,
-				true // isStarknetDest
-			);
+		if (transaction.status !== 'completed' && transaction.status !== 'failed') {
+			if (transaction.status === 'burned' && transaction.burnTxHash) {
+				const attestation = await cctpService.checkAttestation(id);
+				if (attestation) {
+					result = await cctpService.getTransactionStatus(id);
+					if (result) {
+						transaction = result.transaction;
+						mintTxData = result.mintTxData;
+					}
+				}
+			}
 
-			if (delivered) {
-				// Circle auto-minted - mark as completed
-				console.log(`[Status] Circle auto-mint completed for ${id}`);
-				await cctpService.recordMintTx(id, 'auto-mint-by-circle');
-				// Refresh transaction status
-				result = await cctpService.getTransactionStatus(id);
-				if (result) {
-					transaction = result.transaction;
+			if (
+				destConfig?.type === 'starknet' &&
+				transaction.status === 'attested' &&
+				transaction.burnTxHash
+			) {
+				const { delivered } = await checkMessageDelivered(
+					transaction.sourceDomainId,
+					transaction.burnTxHash,
+					true // isStarknetDest
+				);
+
+				if (delivered) {
+					// Circle auto-minted - mark as completed
+					console.log(`[Status] Circle auto-mint completed for ${id}`);
+					await cctpService.recordMintTx(id, 'auto-mint-by-circle');
+					// Refresh transaction status
+					result = await cctpService.getTransactionStatus(id);
+					if (result) {
+						transaction = result.transaction;
+					}
 				}
 			}
 		}

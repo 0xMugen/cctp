@@ -54,7 +54,6 @@ function getConnectedAddresses(): string[] {
  */
 export async function fetchActivity(): Promise<void> {
 	const addresses = getConnectedAddresses();
-	console.log('[Activity Store] Fetching with addresses:', addresses);
 	if (addresses.length === 0) {
 		transactions.set([]);
 		activityTotal.set(0);
@@ -76,11 +75,6 @@ export async function fetchActivity(): Promise<void> {
 		}
 
 		const data: ActivityResponse = await response.json();
-		// Debug: Log what we received from the API
-		console.log('[Activity Store] Received transactions:', data.transactions.length);
-		data.transactions.forEach((tx) => {
-			console.log(`[Activity Store] tx ${tx.id}: status=${tx.status}, hasMintTxData=${!!tx.mintTxData?.evm}`);
-		});
 		transactions.set(data.transactions);
 		activityTotal.set(data.total);
 		activityHasMore.set(data.hasMore);

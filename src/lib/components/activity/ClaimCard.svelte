@@ -6,20 +6,9 @@
 		claimingTxId,
 		claimError,
 		formatAmount,
-		getChainName,
-		transactions
+		getChainName
 	} from '$lib/stores/activity';
 	import { evmConnected } from '$lib/stores/evm';
-
-	$effect(() => {
-		console.log('[ClaimCard] All transactions:', $transactions.length);
-		console.log('[ClaimCard] Claimable transactions:', $claimableTransactions.length);
-		$claimableTransactions.forEach((tx) => {
-			console.log(
-				`[ClaimCard] Claimable: ${tx.id}, status=${tx.status}, hasMintTxData=${!!tx.mintTxData?.evm}`
-			);
-		});
-	});
 
 	async function handleClaim(txId: string) {
 		const tx = $claimableTransactions.find((t) => t.id === txId);

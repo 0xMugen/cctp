@@ -88,8 +88,6 @@ export async function executeBridge(params: ExecuteBridgeParams): Promise<void> 
 		// Step 4: Wait for attestation
 		const attestedStatus = await waitForAttestation(bridgeId);
 
-		console.log('[Executor] attestedStatus.relayerWillMint:', attestedStatus.relayerWillMint);
-
 		const { refreshActivity } = await import('$lib/stores/activity');
 		refreshActivity();
 
