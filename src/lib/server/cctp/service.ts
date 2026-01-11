@@ -110,6 +110,29 @@ export class CCTPService {
 	}
 
 	/**
+	 * Get estimated transfer time based on route and speed
+	 */
+	private getEstimatedTime(sourceDomain: number, destDomain: number, fast: boolean): string {
+		const sourceConfig = getChainConfig(sourceDomain);
+		const destConfig = getChainConfig(destDomain);
+
+		if (fast) {
+			return '~30 seconds';
+		}
+
+		if (sourceConfig?.type === 'starknet') {
+			return '4-8 hours';
+		} else if (sourceConfig?.type === 'evm') {
+			if (destConfig?.type === 'starknet') {
+				return '15-30 minutes';
+			}
+			return '10-20 minutes';
+		}
+
+		return '~20 minutes';
+	}
+
+	/**
 	 * Get a quote for a bridge transfer
 	 */
 	async getQuote(
@@ -140,7 +163,7 @@ export class CCTPService {
 
 		return {
 			fee: feeAmount.toString(),
-			estimatedTime: fast ? '30 seconds' : '2-5 minutes',
+			estimatedTime: this.getEstimatedTime(sourceDomain, destDomain, fast),
 			rate: '1:1' // USDC is 1:1 across chains
 		};
 	}
