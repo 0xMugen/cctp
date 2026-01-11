@@ -101,4 +101,5 @@ export interface BridgeStatusResponse {
 	attestation: string | null;
 	errorMessage: string | null;
 	mintTxData: MintTxData | null;
+	relayerWillMint?: boolean;
 }

@@ -6,7 +6,8 @@ import {
 	bridgeStep,
 	bridgeError,
 	bridgeStatus,
-	connectSSE
+	connectSSE,
+	isFastTransfer
 } from '$lib/stores/bridge';
 import type {
 	ChainConfig,
@@ -54,7 +55,8 @@ export async function executeBridge(params: ExecuteBridgeParams): Promise<void> 
 			destDomain: destChain.domainId,
 			amount: amountInSmallestUnit,
 			sender,
-			recipient
+			recipient,
+			isFastTransfer: get(isFastTransfer)
 		});
 
 		const { bridgeId, txData } = initResponse;
@@ -86,25 +88,33 @@ export async function executeBridge(params: ExecuteBridgeParams): Promise<void> 
 		// Step 4: Wait for attestation
 		const attestedStatus = await waitForAttestation(bridgeId);
 
-		// Step 5: Execute mint transaction
-		bridgeStep.set('minting');
-		let mintTxHash: string;
+		console.log('[Executor] attestedStatus.relayerWillMint:', attestedStatus.relayerWillMint);
 
-		if (destChain.type === 'evm' && attestedStatus.mintTxData?.evm) {
-			mintTxHash = await executeEvmMint(attestedStatus.mintTxData);
-		} else if (destChain.type === 'starknet' && attestedStatus.mintTxData?.starknet) {
-			const account = get(starknetAccount);
-			if (!account) {
-				throw new Error('Starknet account not available');
-			}
-			mintTxHash = await executeStarknetMint(attestedStatus.mintTxData, account);
+		// Step 5: Execute mint transaction (or wait for relayer)
+		if (attestedStatus.relayerWillMint) {
+			bridgeStep.set('minting');
+			await waitForCompletion(bridgeId);
+			bridgeStep.set('completed');
 		} else {
-			throw new Error('Mint transaction data not available');
-		}
+			bridgeStep.set('minting');
+			let mintTxHash: string;
 
-		// Step 6: Report completion
-		await reportMintTransaction(bridgeId, mintTxHash);
-		bridgeStep.set('completed');
+			if (destChain.type === 'evm' && attestedStatus.mintTxData?.evm) {
+				mintTxHash = await executeEvmMint(attestedStatus.mintTxData);
+			} else if (destChain.type === 'starknet' && attestedStatus.mintTxData?.starknet) {
+				const account = get(starknetAccount);
+				if (!account) {
+					throw new Error('Starknet account not available');
+				}
+				mintTxHash = await executeStarknetMint(attestedStatus.mintTxData, account);
+			} else {
+				throw new Error('Mint transaction data not available');
+			}
+
+			// Step 6: Report completion
+			await reportMintTransaction(bridgeId, mintTxHash);
+			bridgeStep.set('completed');
+		}
 	} catch (error) {
 		console.error('Bridge execution failed:', error);
 		bridgeStep.set('failed');
@@ -122,6 +132,7 @@ async function initiateBridge(params: {
 	amount: string;
 	sender: string;
 	recipient: string;
+	isFastTransfer?: boolean;
 }): Promise<InitiateBridgeResponse> {
 	const response = await fetch('/api/bridge/initiate', {
 		method: 'POST',
@@ -267,7 +278,8 @@ async function waitForAttestation(
 		const status: BridgeStatusResponse = await response.json();
 		bridgeStatus.set(status);
 
-		if (status.attestationStatus === 'complete' && status.mintTxData) {
+		// Ready if attestation complete AND either relayer will mint OR we have mintTxData
+		if (status.attestationStatus === 'complete' && (status.relayerWillMint || status.mintTxData)) {
 			return status;
 		}
 
@@ -279,6 +291,38 @@ async function waitForAttestation(
 	}
 
 	throw new Error('Attestation timeout');
+}
+
+/**
+ * Wait for relayer to complete the mint
+ */
+async function waitForCompletion(
+	bridgeId: string,
+	maxAttempts = 120,
+	intervalMs = 5000
+): Promise<BridgeStatusResponse> {
+	for (let i = 0; i < maxAttempts; i++) {
+		const response = await fetch(`/api/bridge/${bridgeId}/status`);
+
+		if (!response.ok) {
+			throw new Error('Failed to fetch bridge status');
+		}
+
+		const status: BridgeStatusResponse = await response.json();
+		bridgeStatus.set(status);
+
+		if (status.status === 'completed') {
+			return status;
+		}
+
+		if (status.status === 'failed') {
+			throw new Error(status.errorMessage || 'Bridge failed');
+		}
+
+		await new Promise((resolve) => setTimeout(resolve, intervalMs));
+	}
+
+	throw new Error('Mint timeout - relayer may still complete the transaction');
 }
 
 /**

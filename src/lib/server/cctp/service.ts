@@ -50,6 +50,7 @@ export interface InitiateBridgeParams {
 	destDomain: number;
 	amount: string;
 	recipientAddress: string;
+	isFastTransfer?: boolean;
 }
 
 export interface BurnTxData {
@@ -114,7 +115,8 @@ export class CCTPService {
 	async getQuote(
 		sourceDomain: number,
 		destDomain: number,
-		amount: string
+		amount: string,
+		fast: boolean = true
 	): Promise<{
 		fee: string;
 		estimatedTime: string;
@@ -133,7 +135,7 @@ export class CCTPService {
 
 		return {
 			fee: feeAmount.toString(),
-			estimatedTime: '30 seconds', // V2 Fast Transfer
+			estimatedTime: fast ? '30 seconds' : '2-5 minutes',
 			rate: '1:1' // USDC is 1:1 across chains
 		};
 	}
@@ -177,12 +179,19 @@ export class CCTPService {
 		const bridgeId = result[0].id;
 
 		// Build transaction data based on source chain type
+		// Fast transfer requires both minFinalityThreshold=1000 AND a maxFee to pay for fast attestation
+		const isFast = params.isFastTransfer !== false;
+		const minFinalityThreshold = isFast ? 1000 : 2000;
+		// maxFee of 100 = 0.0001 USDC - required for fast attestation, 0 for standard
+		const maxFee = isFast ? BigInt(100) : BigInt(0);
 		const txData = this.buildBurnTxData(sourceConfig, {
 			amount: BigInt(params.amount),
 			destinationDomain: params.destDomain,
 			mintRecipient: params.recipientAddress,
 			burnToken: sourceConfig.usdc as Address,
-			userAddress: params.userAddress
+			userAddress: params.userAddress,
+			minFinalityThreshold,
+			maxFee
 		});
 
 		return { bridgeId, txData };
@@ -439,7 +448,7 @@ export class CCTPService {
 	 */
 	private buildBurnTxData(
 		sourceConfig: ChainConfig,
-		params: DepositForBurnParams & { userAddress: string }
+		params: DepositForBurnParams & { userAddress: string; minFinalityThreshold?: number }
 	): BurnTxData {
 		switch (sourceConfig.type) {
 			case 'evm': {
@@ -467,7 +476,9 @@ export class CCTPService {
 						calls: buildStarknetBurnMulticall({
 							amount: params.amount,
 							destinationDomain: params.destinationDomain,
-							mintRecipient: params.mintRecipient
+							mintRecipient: params.mintRecipient,
+							minFinalityThreshold: params.minFinalityThreshold,
+							maxFee: params.maxFee
 						})
 					}
 				};

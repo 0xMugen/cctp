@@ -16,6 +16,7 @@ export const GET: RequestHandler = async ({ url }) => {
 		const sourceDomain = url.searchParams.get('sourceDomain');
 		const destDomain = url.searchParams.get('destDomain');
 		const amount = url.searchParams.get('amount');
+		const fast = url.searchParams.get('fast') !== 'false'; // Default to true
 
 		if (!sourceDomain || !destDomain || !amount) {
 			return json(
@@ -27,7 +28,8 @@ export const GET: RequestHandler = async ({ url }) => {
 		const quote = await cctpService.getQuote(
 			parseInt(sourceDomain),
 			parseInt(destDomain),
-			amount
+			amount,
+			fast
 		);
 
 		return json({

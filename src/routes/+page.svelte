@@ -19,7 +19,8 @@
 		setDestChain,
 		swapChains,
 		fetchQuote,
-		getBridgeStepLabel
+		getBridgeStepLabel,
+		isFastTransfer
 	} from '$lib/stores/bridge';
 	import { evmConnected } from '$lib/stores/evm';
 	import { starknetConnected } from '$lib/stores/starknet';
@@ -29,6 +30,8 @@
 
 	// Fetch quote when inputs change (debounced)
 	$effect(() => {
+		// Access isFastTransfer to create dependency - quote updates when toggled
+		const fast = $isFastTransfer;
 		if ($sourceChain && $destChain && $bridgeAmount && parseFloat($bridgeAmount) > 0) {
 			if (quoteTimeout) clearTimeout(quoteTimeout);
 			quoteTimeout = setTimeout(() => {
@@ -118,11 +121,54 @@
 						/>
 					</div>
 
+					<!-- Fast Transfer Toggle -->
+					<div class="mt-4">
+						<div class="flex items-center justify-between rounded-lg bg-gray-700/50 p-4">
+							<div class="flex-1">
+								<div class="flex items-center gap-2">
+									<span class="text-sm font-medium text-white">Fast Transfer</span>
+									{#if $isFastTransfer}
+										<span
+											class="rounded-full bg-green-500/20 px-2 py-0.5 text-xs font-medium text-green-400"
+										>
+											~30 sec
+										</span>
+									{/if}
+								</div>
+								{#if $isFastTransfer}
+									<p class="mt-1 text-xs text-yellow-400">
+										Transfer takes only a few seconds but extra fees may apply
+									</p>
+								{:else}
+									<p class="mt-1 text-xs text-gray-400">Standard finality (~2-5 minutes)</p>
+								{/if}
+							</div>
+							<button
+								type="button"
+								onclick={() => isFastTransfer.update((v) => !v)}
+								disabled={$bridgeStep !== 'idle'}
+								class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 {$isFastTransfer
+									? 'bg-blue-600'
+									: 'bg-gray-600'}"
+								role="switch"
+								aria-checked={$isFastTransfer}
+								aria-label="Toggle fast transfer mode"
+							>
+								<span
+									class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out {$isFastTransfer
+										? 'translate-x-5'
+										: 'translate-x-0'}"
+								></span>
+							</button>
+						</div>
+					</div>
+
 					<!-- Swap Button -->
 					<div class="my-4 flex justify-center">
 						<button
 							onclick={() => swapChains()}
 							disabled={$bridgeStep !== 'idle'}
+							aria-label="Swap source and destination chains"
 							class="rounded-full bg-gray-700 p-2 text-gray-400 transition hover:bg-gray-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
 						>
 							<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

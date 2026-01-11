@@ -17,6 +17,8 @@ export const bridgeStatus = writable<BridgeStatusResponse | null>(null);
 export const bridgeStep = writable<BridgeStep>('idle');
 export const bridgeError = writable<string | null>(null);
 
+export const isFastTransfer = writable<boolean>(true);
+
 // Quote state
 export const currentQuote = writable<Quote | null>(null);
 export const quoteFetching = writable(false);
@@ -79,6 +81,7 @@ export async function fetchQuote(): Promise<Quote | null> {
 	const source = get(sourceChain);
 	const dest = get(destChain);
 	const amount = get(bridgeAmount);
+	const fastTransfer = get(isFastTransfer);
 
 	if (!source || !dest || !amount || parseFloat(amount) <= 0) {
 		currentQuote.set(null);
@@ -92,7 +95,7 @@ export async function fetchQuote(): Promise<Quote | null> {
 		const amountInSmallestUnit = Math.floor(parseFloat(amount) * 1e6).toString();
 
 		const response = await fetch(
-			`/api/bridge/quote?sourceDomain=${source.domainId}&destDomain=${dest.domainId}&amount=${amountInSmallestUnit}`
+			`/api/bridge/quote?sourceDomain=${source.domainId}&destDomain=${dest.domainId}&amount=${amountInSmallestUnit}&fast=${fastTransfer}`
 		);
 
 		if (!response.ok) {
@@ -167,6 +170,7 @@ export function resetBridge(): void {
 	bridgeError.set(null);
 	bridgeAmount.set('');
 	currentQuote.set(null);
+	isFastTransfer.set(true);
 
 	// Close SSE connection
 	const sse = get(sseConnection);

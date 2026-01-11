@@ -16,7 +16,7 @@ import { cctpService } from '$lib/server/cctp/service.js';
 export const POST: RequestHandler = async ({ request }) => {
 	try {
 		const body = await request.json();
-		const { sourceDomain, destDomain, amount, sender, recipient } = body;
+		const { sourceDomain, destDomain, amount, sender, recipient, isFastTransfer } = body;
 
 		// Validate required fields
 		if (
@@ -44,7 +44,8 @@ export const POST: RequestHandler = async ({ request }) => {
 			sourceDomain: parseInt(sourceDomain),
 			destDomain: parseInt(destDomain),
 			amount: amount.toString(),
-			recipientAddress: recipient
+			recipientAddress: recipient,
+			isFastTransfer: isFastTransfer !== false
 		});
 
 		return json({

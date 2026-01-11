@@ -57,8 +57,63 @@ export interface MessageResponseV2 {
 		attestation: string;
 		eventNonce: string;
 		cctpVersion: number;
-		status: string;
+		status: string; // 'pending_confirmations' | 'complete' | 'delivered' etc
 	}>;
+}
+
+/**
+ * Check if a message has been delivered (minted) on destination chain
+ * Uses Circle's V2 API to check message status
+ *
+ * For Starknet destinations with subsidized auto-mint:
+ * - When status is "complete" and attestation exists, Circle auto-mints
+ * - We treat "complete" as delivered for Starknet
+ */
+export async function checkMessageDelivered(
+	sourceDomainId: number,
+	txHash: string,
+	isStarknetDest: boolean = false
+): Promise<{ delivered: boolean; status?: string }> {
+	const apiHost = getIrisApiHost();
+	const url = `${apiHost}/v2/messages/${sourceDomainId}?transactionHash=${txHash}`;
+
+	try {
+		const response = await fetch(url);
+
+		if (!response.ok) {
+			return { delivered: false };
+		}
+
+		const data = (await response.json()) as MessageResponseV2;
+
+		if (data.messages && data.messages.length > 0) {
+			const msg = data.messages[0];
+			const status = msg.status.toLowerCase();
+
+			// For Starknet with Circle auto-mint: "complete" means attestation ready AND auto-minted
+			// For other chains: check for explicit delivery status
+			let isDelivered = false;
+
+			if (isStarknetDest) {
+				// Starknet uses Circle subsidized auto-mint
+				// When attestation is "complete", Circle has auto-minted
+				isDelivered = status === 'complete' && !!msg.attestation && msg.attestation !== 'PENDING';
+			} else {
+				// Other chains - check for explicit delivery status
+				const deliveredStatuses = ['delivered', 'received', 'minted'];
+				isDelivered = deliveredStatuses.includes(status);
+			}
+
+			console.log(`[CCTP] Message status for ${txHash}: ${msg.status}, isStarknetDest: ${isStarknetDest}, delivered: ${isDelivered}`);
+
+			return { delivered: isDelivered, status: msg.status };
+		}
+
+		return { delivered: false };
+	} catch (error) {
+		console.error('[CCTP] Error checking message delivery:', error);
+		return { delivered: false };
+	}
 }
 
 /**

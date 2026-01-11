@@ -10,12 +10,23 @@ let account: Account | null = null;
  * Check if Starknet relayer is configured and enabled
  */
 export function isStarknetRelayerEnabled(): boolean {
-	return !!(
+	const enabled = !!(
 		env.RELAYER_ENABLED === 'true' &&
 		env.STARKNET_RELAYER_ADDRESS &&
 		env.STARKNET_RELAYER_PRIVATE_KEY &&
 		env.STARKNET_RPC_URL
 	);
+
+	if (!enabled) {
+		console.log('[StarknetRelayer] Config check:', {
+			RELAYER_ENABLED: env.RELAYER_ENABLED,
+			hasAddress: !!env.STARKNET_RELAYER_ADDRESS,
+			hasPrivateKey: !!env.STARKNET_RELAYER_PRIVATE_KEY,
+			hasRpcUrl: !!env.STARKNET_RPC_URL
+		});
+	}
+
+	return enabled;
 }
 
 /**

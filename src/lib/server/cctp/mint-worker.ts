@@ -2,11 +2,6 @@ import type { PoolClient } from 'pg';
 import { pool } from '../database.js';
 import { cctpService } from './service.js';
 import { executeMint, isRelayerEnabled, findExistingMintTx } from './relayer.js';
-import {
-	executeStarknetMint,
-	isStarknetRelayerEnabled,
-	findExistingStarknetMintTx
-} from './starknet-relayer.js';
 import { getChainConfig } from './config.js';
 import { parseNonceFromMessage } from './evm.js';
 import type { Address, Hex } from 'viem';
@@ -38,8 +33,10 @@ class MintWorker {
 	 * Start the mint worker
 	 */
 	async start(): Promise<void> {
-		if (!isRelayerEnabled() && !isStarknetRelayerEnabled()) {
-			console.log('Mint worker disabled: No relayers configured (check RELAYER_ENABLED and relayer keys)');
+		// Mint worker handles EVM destinations (Starknet uses Circle auto-mint)
+		if (!isRelayerEnabled()) {
+			console.log('Mint worker disabled: EVM relayer not configured (check RELAYER_ENABLED and RELAYER_PRIVATE_KEY)');
+			console.log('Note: Starknet destinations use Circle auto-mint and do not require a relayer');
 			return;
 		}
 
@@ -370,50 +367,11 @@ class MintWorker {
 					}
 				}
 			} else if (destConfig.type === 'starknet') {
-				// Starknet destination - check for Starknet mint data
-				if (!mintTxData?.starknet) {
-					console.log(`[Mint] No Starknet mint data for ${job.id}, skipping`);
-					this.jobs.delete(job.id);
-					return;
-				}
-
-				if (!isStarknetRelayerEnabled()) {
-					console.log(`[Mint] Starknet relayer not configured for ${job.id}, skipping`);
-					this.jobs.delete(job.id);
-					return;
-				}
-
-				// Store info needed for recovery
-				if (transaction.messageBytes) {
-					transactionInfo = {
-						messageBytes: transaction.messageBytes,
-						messageTransmitter: destConfig.messageTransmitter as Address
-					};
-				}
-
-				// Execute the Starknet mint
-				const { txHash, success } = await executeStarknetMint(mintTxData.starknet.calls);
-
-				if (success) {
-					await cctpService.recordMintTx(job.id, txHash);
-					this.jobs.delete(job.id);
-					console.log(`✅ Starknet mint completed for ${job.id}: ${txHash}`);
-				} else {
-					job.attempts++;
-					if (job.attempts >= this.MAX_ATTEMPTS) {
-						this.jobs.delete(job.id);
-						await cctpService.markFailed(
-							job.id,
-							`Starknet mint transaction reverted after ${this.MAX_ATTEMPTS} attempts`
-						);
-						console.error(`❌ Starknet mint failed for ${job.id}: max attempts reached`);
-					} else {
-						job.nextRetry = Date.now() + this.calculateBackoff(job.attempts);
-						console.warn(
-							`[Mint] Starknet transaction reverted for ${job.id}, will retry (attempt ${job.attempts})`
-						);
-					}
-				}
+				// Starknet destinations use Circle's auto-mint (subsidized)
+				// No need for our relayer - just skip and let Circle handle it
+				console.log(`[Mint] Starknet destination for ${job.id} - Circle auto-mint handles this, skipping`);
+				this.jobs.delete(job.id);
+				return;
 			} else {
 				// Unsupported chain type (e.g., Solana)
 				console.log(
@@ -445,7 +403,7 @@ class MintWorker {
 					let existingTxHash: string | null = null;
 					const destConfig = getChainConfig(job.destDomainId);
 
-					// Try to find the existing mint transaction based on chain type
+					// Try to find the existing mint transaction (EVM only - Starknet uses Circle auto-mint)
 					if (destConfig?.type === 'evm') {
 						existingTxHash = await findExistingMintTx(
 							job.destDomainId,
@@ -453,8 +411,6 @@ class MintWorker {
 							sourceDomain,
 							nonce
 						);
-					} else if (destConfig?.type === 'starknet') {
-						existingTxHash = await findExistingStarknetMintTx(sourceDomain, nonce);
 					}
 
 					if (existingTxHash) {
