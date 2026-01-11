@@ -77,7 +77,7 @@
 			$bridgeAmount &&
 			parseFloat($bridgeAmount) > 0 &&
 			$currentQuote &&
-			$bridgeStep === 'idle' &&
+			($bridgeStep === 'idle' || $bridgeStep === 'failed') &&
 			(!needsEvmWallet || $evmConnected) &&
 			(!needsStarknetWallet || $starknetConnected)
 	);
@@ -135,7 +135,7 @@
 						chains={$availableSourceChains}
 						selected={$sourceChain}
 						onSelect={setSourceChain}
-						disabled={$bridgeStep !== 'idle'}
+						disabled={$bridgeStep !== 'idle' && $bridgeStep !== 'failed'}
 					/>
 
 					<!-- Amount Input -->
@@ -143,7 +143,7 @@
 						<AmountInput
 							value={$bridgeAmount}
 							onInput={handleAmountInput}
-							disabled={$bridgeStep !== 'idle'}
+							disabled={$bridgeStep !== 'idle' && $bridgeStep !== 'failed'}
 						/>
 					</div>
 
@@ -172,7 +172,7 @@
 							<button
 								type="button"
 								onclick={() => isFastTransfer.update((v) => !v)}
-								disabled={$bridgeStep !== 'idle'}
+								disabled={$bridgeStep !== 'idle' && $bridgeStep !== 'failed'}
 								class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 {$isFastTransfer
 									? 'bg-blue-600'
 									: 'bg-gray-600'}"
@@ -193,7 +193,7 @@
 					<div class="my-4 flex justify-center">
 						<button
 							onclick={() => swapChains()}
-							disabled={$bridgeStep !== 'idle'}
+							disabled={$bridgeStep !== 'idle' && $bridgeStep !== 'failed'}
 							aria-label="Swap source and destination chains"
 							class="rounded-full bg-gray-700 p-2 text-gray-400 transition hover:bg-gray-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
 						>
@@ -214,7 +214,7 @@
 						chains={$availableDestChains}
 						selected={$destChain}
 						onSelect={setDestChain}
-						disabled={$bridgeStep !== 'idle'}
+						disabled={$bridgeStep !== 'idle' && $bridgeStep !== 'failed'}
 					/>
 
 					<!-- Quote Display -->

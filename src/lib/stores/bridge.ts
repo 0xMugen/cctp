@@ -273,7 +273,7 @@ export function getBridgeStepLabel(step: BridgeStep): string {
 		case 'completed':
 			return 'Bridge completed!';
 		case 'failed':
-			return 'Bridge failed';
+			return 'Bridge USDC';
 		default:
 			return 'Bridge USDC';
 	}
