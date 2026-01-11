@@ -239,29 +239,3 @@ export function buildStarknetBurnMulticall(params: StarknetDepositForBurnParams)
 
 	return [approveCall, burnCall];
 }
-
-/**
- * Get the estimated gas for a Starknet transaction
- * Returns fee in WEI (ETH on Starknet)
- */
-export async function estimateStarknetFee(calls: Call[]): Promise<bigint> {
-	// Dynamically import to avoid circular dependency
-	const { getStarknetRelayerAccount, isStarknetRelayerEnabled } = await import(
-		'./starknet-relayer.js'
-	);
-
-	if (!isStarknetRelayerEnabled()) {
-		// Return placeholder when relayer not configured
-		return BigInt('1000000000000000'); // 0.001 ETH
-	}
-
-	try {
-		const account = getStarknetRelayerAccount();
-		const estimation = await account.estimateInvokeFee(calls);
-		return estimation.overall_fee;
-	} catch (error) {
-		console.error('Failed to estimate Starknet fee:', error);
-		// Return conservative estimate on failure
-		return BigInt('1000000000000000'); // 0.001 ETH
-	}
-}
