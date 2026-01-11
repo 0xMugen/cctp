@@ -90,6 +90,9 @@ export async function executeBridge(params: ExecuteBridgeParams): Promise<void> 
 
 		console.log('[Executor] attestedStatus.relayerWillMint:', attestedStatus.relayerWillMint);
 
+		const { refreshActivity } = await import('$lib/stores/activity');
+		refreshActivity();
+
 		// Step 5: Execute mint transaction (or wait for relayer)
 		if (attestedStatus.relayerWillMint) {
 			bridgeStep.set('minting');

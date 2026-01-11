@@ -5,6 +5,7 @@
 	import AmountInput from '$lib/components/bridge/AmountInput.svelte';
 	import QuoteDisplay from '$lib/components/bridge/QuoteDisplay.svelte';
 	import TransactionStatus from '$lib/components/bridge/TransactionStatus.svelte';
+	import ActivitySection from '$lib/components/activity/ActivitySection.svelte';
 	import {
 		chainsLoaded,
 		sourceChain,
@@ -230,6 +231,9 @@
 					</p>
 					<p class="mt-2">V2 Fast Transfer typically completes in under 30 seconds.</p>
 				</div>
+
+				<!-- Activity Section -->
+				<ActivitySection />
 			{/if}
 		</div>
 	</div>

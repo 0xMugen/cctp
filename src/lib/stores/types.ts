@@ -103,3 +103,26 @@ export interface BridgeStatusResponse {
 	mintTxData: MintTxData | null;
 	relayerWillMint?: boolean;
 }
+
+// Activity types
+export interface ActivityTransaction {
+	id: string;
+	status: BridgeStatus;
+	attestationStatus: AttestationStatus;
+	sourceDomainId: number;
+	destDomainId: number;
+	amount: string;
+	recipientAddress: string;
+	burnTxHash: string | null;
+	mintTxHash: string | null;
+	createdAt: string;
+	updatedAt: string;
+	// For claimable transactions (attested + EVM destination)
+	mintTxData?: MintTxData;
+}
+
+export interface ActivityResponse {
+	transactions: ActivityTransaction[];
+	total: number;
+	hasMore: boolean;
+}

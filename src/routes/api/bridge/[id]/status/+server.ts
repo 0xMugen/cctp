@@ -2,11 +2,11 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { cctpService } from '$lib/server/cctp/service.js';
 import { getChainConfig } from '$lib/server/cctp/config.js';
-import { isRelayerEnabled } from '$lib/server/cctp/relayer.js';
 import { checkMessageDelivered } from '$lib/server/cctp/attestation.js';
 
 /**
- * Check if mint will be handled automatically (by relayer or Circle auto-mint)
+ * Check if mint will be handled automatically (by Circle auto-mint)
+ * Only Starknet has subsidized auto-mint - EVM requires manual claim by user
  */
 function willAutoMint(destDomainId: number): boolean {
 	const destConfig = getChainConfig(destDomainId);
@@ -16,10 +16,8 @@ function willAutoMint(destDomainId: number): boolean {
 	}
 
 	if (destConfig.type === 'evm') {
-		// EVM chains require our relayer or manual mint
-		const enabled = isRelayerEnabled();
-		console.log(`[Status] EVM relayer enabled: ${enabled}`);
-		return enabled;
+		// EVM chains require manual mint by user (no relayer)
+		return false;
 	} else if (destConfig.type === 'starknet') {
 		// Starknet has Circle-subsidized auto-mint in CCTP V2
 		// User doesn't need to sign a mint transaction

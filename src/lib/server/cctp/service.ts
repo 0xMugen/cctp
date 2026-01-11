@@ -6,7 +6,7 @@ import {
 	STARKNET_DOMAIN_ID,
 	type ChainConfig
 } from './config.js';
-import { fetchAttestation, computeMessageHash, getTransferFees, getMessageFromTx } from './attestation.js';
+import { computeMessageHash, getTransferFees, getMessageFromTx } from './attestation.js';
 import { buildDepositForBurnTx, buildReceiveMessageTx, getApprovalTxData, type DepositForBurnParams } from './evm.js';
 import { buildStarknetBurnMulticall, buildStarknetMintCall } from './starknet.js';
 import { buildSolanaBurnInstruction, buildSolanaMintInstruction } from './solana.js';
@@ -131,7 +131,12 @@ export class CCTPService {
 
 		// Calculate fee based on amount
 		const amountBigInt = BigInt(amount);
-		const feeAmount = (amountBigInt * BigInt(fees.minimumFee)) / BigInt(10000); // minimumFee is in bps
+		let feeAmount = (amountBigInt * BigInt(fees.minimumFee)) / BigInt(10000); // minimumFee is in bps
+
+		// Add fast transfer fee if applicable (0.01 USDC = 10000 units)
+		if (fast) {
+			feeAmount += BigInt(10000);
+		}
 
 		return {
 			fee: feeAmount.toString(),
@@ -182,8 +187,10 @@ export class CCTPService {
 		// Fast transfer requires both minFinalityThreshold=1000 AND a maxFee to pay for fast attestation
 		const isFast = params.isFastTransfer !== false;
 		const minFinalityThreshold = isFast ? 1000 : 2000;
-		// maxFee of 100 = 0.0001 USDC - required for fast attestation, 0 for standard
-		const maxFee = isFast ? BigInt(100) : BigInt(0);
+		// maxFee of 10000 = 0.01 USDC - required for fast attestation, 0 for standard
+		// Circle requires a minimum fee for fast transfers (around 0.007 USDC based on testing)
+		const maxFee = isFast ? BigInt(10000) : BigInt(0);
+
 		const txData = this.buildBurnTxData(sourceConfig, {
 			amount: BigInt(params.amount),
 			destinationDomain: params.destDomain,
@@ -286,73 +293,24 @@ export class CCTPService {
 
 	/**
 	 * Check and update attestation for a transaction
+	 * Uses V2 API for all transactions (required for Starknet source)
 	 */
 	async checkAttestation(bridgeId: string): Promise<string | null> {
-		let tx = await this.getTransaction(bridgeId);
+		const tx = await this.getTransaction(bridgeId);
 		if (!tx) return null;
 
 		if (tx.attestationStatus === 'complete' || tx.status === 'completed') {
 			return tx.attestation;
 		}
 
-		// keccak256 of empty data - this is an invalid message hash
-		const EMPTY_HASH = '0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470';
-		const hasValidMessageHash = tx.messageHash && tx.messageHash !== EMPTY_HASH;
-
-		if (!hasValidMessageHash && tx.burnTxHash) {
-			try {
-				const messageData = await getMessageFromTx(tx.sourceDomainId, tx.burnTxHash);
-				if (messageData) {
-					const messageHash = computeMessageHash(messageData.message);
-
-					if (messageData.attestation) {
-						await db.execute(
-							`UPDATE bridge_transactions
-							 SET message_bytes = $1, message_hash = $2, nonce = $3,
-							     attestation = $4, attestation_status = 'complete', status = 'attested',
-							     updated_at = NOW()
-							 WHERE id = $5`,
-							[messageData.message, messageHash, messageData.eventNonce, messageData.attestation, bridgeId]
-						);
-						console.log(`[CCTP] Got message AND attestation for tx ${tx.burnTxHash}`);
-						return messageData.attestation;
-					} else {
-						await db.execute(
-							`UPDATE bridge_transactions
-							 SET message_bytes = $1, message_hash = $2, nonce = $3, updated_at = NOW()
-							 WHERE id = $4`,
-							[messageData.message, messageHash, messageData.eventNonce, bridgeId]
-						);
-						tx = await this.getTransaction(bridgeId);
-						if (!tx) return null;
-						console.log(`[CCTP] Fetched message for tx ${tx.burnTxHash}, hash: ${messageHash}`);
-					}
-				}
-			} catch (error) {
-				console.log(`[CCTP] Message not yet available for bridge ${bridgeId}:`, error);
-				return null;
-			}
-		}
-
-		// Still no valid message hash - can't check attestation via V1 API
-		if (!tx.messageHash || tx.messageHash === EMPTY_HASH) {
+		if (!tx.burnTxHash) {
 			return null;
 		}
 
 		try {
-			const attestation = await fetchAttestation(tx.messageHash);
-
-			if (attestation) {
-				await db.execute(
-					`UPDATE bridge_transactions
-					 SET attestation = $1, attestation_status = 'complete', status = 'attested',
-					     attestation_attempts = attestation_attempts + 1, last_attestation_check = NOW(),
-					     updated_at = NOW()
-					 WHERE id = $2`,
-					[attestation, bridgeId]
-				);
-				return attestation;
-			} else {
+			// Always use V2 API - required for Starknet source transactions
+			const messageData = await getMessageFromTx(tx.sourceDomainId, tx.burnTxHash);
+			if (!messageData) {
 				// Update attempt count
 				await db.execute(
 					`UPDATE bridge_transactions
@@ -360,6 +318,35 @@ export class CCTPService {
 					 WHERE id = $1`,
 					[bridgeId]
 				);
+				return null;
+			}
+
+			const messageHash = computeMessageHash(messageData.message);
+
+			if (messageData.attestation) {
+				// Got both message and attestation
+				await db.execute(
+					`UPDATE bridge_transactions
+					 SET message_bytes = $1, message_hash = $2, nonce = $3,
+					     attestation = $4, attestation_status = 'complete', status = 'attested',
+					     attestation_attempts = attestation_attempts + 1, last_attestation_check = NOW(),
+					     updated_at = NOW()
+					 WHERE id = $5`,
+					[messageData.message, messageHash, messageData.eventNonce, messageData.attestation, bridgeId]
+				);
+				console.log(`[CCTP] Got message AND attestation via V2 API for tx ${tx.burnTxHash}`);
+				return messageData.attestation;
+			} else {
+				// Got message but attestation not ready yet - update message info
+				await db.execute(
+					`UPDATE bridge_transactions
+					 SET message_bytes = $1, message_hash = $2, nonce = $3,
+					     attestation_attempts = attestation_attempts + 1, last_attestation_check = NOW(),
+					     updated_at = NOW()
+					 WHERE id = $4`,
+					[messageData.message, messageHash, messageData.eventNonce, bridgeId]
+				);
+				console.log(`[CCTP] Got message via V2 API, attestation pending for tx ${tx.burnTxHash}`);
 				return null;
 			}
 		} catch (error) {
@@ -417,31 +404,6 @@ export class CCTPService {
 		);
 	}
 
-	/**
-	 * Get all transactions that are attested but not yet minted (for mint worker)
-	 */
-	async getPendingMints(): Promise<BridgeTransaction[]> {
-		return db.execute<BridgeTransaction>(
-			`SELECT
-				id, user_address as "userAddress", source_domain_id as "sourceDomainId",
-				dest_domain_id as "destDomainId", amount, recipient_address as "recipientAddress",
-				burn_tx_hash as "burnTxHash", message_hash as "messageHash",
-				message_bytes as "messageBytes", nonce, attestation,
-				attestation_status as "attestationStatus", attestation_attempts as "attestationAttempts",
-				mint_tx_hash as "mintTxHash", status, error_message as "errorMessage",
-				created_at as "createdAt", updated_at as "updatedAt"
-			 FROM bridge_transactions
-			 WHERE status = 'attested'
-			   AND attestation IS NOT NULL
-			   AND attestation LIKE '0x%'
-			   AND message_bytes IS NOT NULL
-			   AND message_bytes LIKE '0x%'
-			   AND mint_tx_hash IS NULL
-			 ORDER BY created_at ASC
-			 LIMIT 100`,
-			[]
-		);
-	}
 
 	/**
 	 * Build burn transaction data based on source chain type
