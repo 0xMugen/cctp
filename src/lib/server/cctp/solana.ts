@@ -2,14 +2,18 @@ import { PublicKey, TransactionInstruction, SystemProgram } from '@solana/web3.j
 import { getChainConfig } from '../app-config.js';
 import { DOMAIN_IDS, STARKNET_DOMAIN_ID } from './config.js';
 
-// Solana CCTP Program IDs (mainnet)
-export const CCTP_PROGRAM_IDS = {
-	TOKEN_MESSENGER: 'CCTPiPYPc6AsJuwueEnWgSgucamXDZwBd53dQ11YiKX3',
-	MESSAGE_TRANSMITTER: 'CCTPmbSD7gX1bxKPAmg77w8oFzNFpaQiQUWD43TKaecd'
-} as const;
-
-// USDC on Solana
-export const SOLANA_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+// Helper to get Solana config from database
+function getSolanaConfig() {
+	const config = getChainConfig(DOMAIN_IDS.SOLANA);
+	if (!config) {
+		throw new Error('Solana chain config not found');
+	}
+	return {
+		tokenMessenger: config.tokenMessenger,
+		messageTransmitter: config.messageTransmitter,
+		usdc: config.usdc
+	};
+}
 
 export interface SolanaDepositForBurnParams {
 	amount: bigint;
@@ -50,43 +54,43 @@ export function evmAddressToBuffer(address: string): Buffer {
 /**
  * Find the PDA for the message transmitter authority
  */
-export function findMessageTransmitterAuthority(): [PublicKey, number] {
+export function findMessageTransmitterAuthority(messageTransmitterProgramId: string): [PublicKey, number] {
 	return PublicKey.findProgramAddressSync(
 		[Buffer.from('message_transmitter_authority')],
-		new PublicKey(CCTP_PROGRAM_IDS.MESSAGE_TRANSMITTER)
+		new PublicKey(messageTransmitterProgramId)
 	);
 }
 
 /**
  * Find the PDA for the token messenger minter
  */
-export function findTokenMessengerMinter(): [PublicKey, number] {
+export function findTokenMessengerMinter(tokenMessengerProgramId: string): [PublicKey, number] {
 	return PublicKey.findProgramAddressSync(
 		[Buffer.from('token_messenger_minter')],
-		new PublicKey(CCTP_PROGRAM_IDS.TOKEN_MESSENGER)
+		new PublicKey(tokenMessengerProgramId)
 	);
 }
 
 /**
  * Find the PDA for the local token account
  */
-export function findLocalToken(mint: PublicKey): [PublicKey, number] {
+export function findLocalToken(mint: PublicKey, tokenMessengerProgramId: string): [PublicKey, number] {
 	return PublicKey.findProgramAddressSync(
 		[Buffer.from('local_token'), mint.toBuffer()],
-		new PublicKey(CCTP_PROGRAM_IDS.TOKEN_MESSENGER)
+		new PublicKey(tokenMessengerProgramId)
 	);
 }
 
 /**
  * Find the PDA for the remote token messenger
  */
-export function findRemoteTokenMessenger(remoteDomain: number): [PublicKey, number] {
+export function findRemoteTokenMessenger(remoteDomain: number, tokenMessengerProgramId: string): [PublicKey, number] {
 	const remoteDomainBuffer = Buffer.alloc(4);
 	remoteDomainBuffer.writeUInt32LE(remoteDomain);
 
 	return PublicKey.findProgramAddressSync(
 		[Buffer.from('remote_token_messenger'), remoteDomainBuffer],
-		new PublicKey(CCTP_PROGRAM_IDS.TOKEN_MESSENGER)
+		new PublicKey(tokenMessengerProgramId)
 	);
 }
 
@@ -98,10 +102,7 @@ export function buildSolanaBurnInstruction(params: SolanaDepositForBurnParams): 
 	instruction: TransactionInstruction;
 	accounts: Array<{ pubkey: PublicKey; name: string }>;
 } {
-	const solanaConfig = getChainConfig(DOMAIN_IDS.SOLANA);
-	if (!solanaConfig) {
-		throw new Error('Solana chain config not found');
-	}
+	const solanaConfig = getSolanaConfig();
 
 	const destConfig = getChainConfig(params.destinationDomain);
 	if (!destConfig) {
@@ -118,17 +119,17 @@ export function buildSolanaBurnInstruction(params: SolanaDepositForBurnParams): 
 		throw new Error(`Cannot bridge from Solana to ${destConfig.type}`);
 	}
 
-	const tokenMessengerProgram = new PublicKey(CCTP_PROGRAM_IDS.TOKEN_MESSENGER);
-	const messageTransmitterProgram = new PublicKey(CCTP_PROGRAM_IDS.MESSAGE_TRANSMITTER);
-	const usdcMint = new PublicKey(SOLANA_USDC_MINT);
+	const tokenMessengerProgram = new PublicKey(solanaConfig.tokenMessenger);
+	const messageTransmitterProgram = new PublicKey(solanaConfig.messageTransmitter);
+	const usdcMint = new PublicKey(solanaConfig.usdc);
 	const sender = new PublicKey(params.sender);
 	const senderTokenAccount = new PublicKey(params.senderTokenAccount);
 
 	// Find PDAs
-	const [messageTransmitterAuthority] = findMessageTransmitterAuthority();
-	const [tokenMessengerMinter] = findTokenMessengerMinter();
-	const [localToken] = findLocalToken(usdcMint);
-	const [remoteTokenMessenger] = findRemoteTokenMessenger(params.destinationDomain);
+	const [messageTransmitterAuthority] = findMessageTransmitterAuthority(solanaConfig.messageTransmitter);
+	const [tokenMessengerMinter] = findTokenMessengerMinter(solanaConfig.tokenMessenger);
+	const [localToken] = findLocalToken(usdcMint, solanaConfig.tokenMessenger);
+	const [remoteTokenMessenger] = findRemoteTokenMessenger(params.destinationDomain, solanaConfig.tokenMessenger);
 
 	// Build instruction data
 	// Format: discriminator (8 bytes) + amount (8 bytes) + destination_domain (4 bytes) + mint_recipient (32 bytes)
@@ -174,15 +175,17 @@ export function buildSolanaMintInstruction(params: SolanaReceiveMessageParams): 
 	instruction: TransactionInstruction;
 	accounts: Array<{ pubkey: PublicKey; name: string }>;
 } {
-	const messageTransmitterProgram = new PublicKey(CCTP_PROGRAM_IDS.MESSAGE_TRANSMITTER);
-	const tokenMessengerProgram = new PublicKey(CCTP_PROGRAM_IDS.TOKEN_MESSENGER);
-	const usdcMint = new PublicKey(SOLANA_USDC_MINT);
+	const solanaConfig = getSolanaConfig();
+
+	const messageTransmitterProgram = new PublicKey(solanaConfig.messageTransmitter);
+	const tokenMessengerProgram = new PublicKey(solanaConfig.tokenMessenger);
+	const usdcMint = new PublicKey(solanaConfig.usdc);
 	const recipient = new PublicKey(params.recipient);
 
 	// Find PDAs
-	const [messageTransmitterAuthority] = findMessageTransmitterAuthority();
-	const [tokenMessengerMinter] = findTokenMessengerMinter();
-	const [localToken] = findLocalToken(usdcMint);
+	const [messageTransmitterAuthority] = findMessageTransmitterAuthority(solanaConfig.messageTransmitter);
+	const [tokenMessengerMinter] = findTokenMessengerMinter(solanaConfig.tokenMessenger);
+	const [localToken] = findLocalToken(usdcMint, solanaConfig.tokenMessenger);
 
 	// Build instruction data
 	// Format: discriminator (8 bytes) + message_length (4 bytes) + message + attestation_length (4 bytes) + attestation
@@ -260,11 +263,12 @@ export function parseSolanaMessageEvent(logs: string[]): {
  * Get the USDC token account for a wallet
  */
 export function getUsdcTokenAccount(wallet: PublicKey): PublicKey {
+	const solanaConfig = getSolanaConfig();
 	const [tokenAccount] = PublicKey.findProgramAddressSync(
 		[
 			wallet.toBuffer(),
 			new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA').toBuffer(),
-			new PublicKey(SOLANA_USDC_MINT).toBuffer()
+			new PublicKey(solanaConfig.usdc).toBuffer()
 		],
 		new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL') // Associated Token Program
 	);

@@ -29,7 +29,7 @@ export async function loadChainConfig(): Promise<void> {
 	const isTestnet = env.CCTP_TESTNET === 'true';
 
 	const rows = await db.execute<ChainConfig>(
-		`SELECT 
+		`SELECT
             chain_id as "chainId",
             domain_id as "domainId",
             name,
@@ -38,9 +38,10 @@ export async function loadChainConfig(): Promise<void> {
             message_transmitter as "messageTransmitter",
             usdc_address as "usdc",
             rpc_url as "rpcUrl",
+            explorer_url as "explorerUrl",
             is_enabled as "isEnabled",
             is_testnet as "isTestnet"
-        FROM supported_chains 
+        FROM supported_chains
         WHERE is_enabled = true AND is_testnet = $1`,
 		[isTestnet]
 	);

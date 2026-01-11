@@ -1,6 +1,7 @@
 import { Account, RpcProvider, type Call } from 'starknet';
 import { env } from '$env/dynamic/private';
-import { STARKNET_DOMAIN_ID, getChainConfig } from './config.js';
+import { STARKNET_DOMAIN_ID } from './config.js';
+import { getChainConfig } from '../app-config.js';
 
 // Cached provider and account
 let provider: RpcProvider | null = null;
