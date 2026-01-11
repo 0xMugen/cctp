@@ -7,7 +7,7 @@ import {
 	type ChainConfig
 } from './config.js';
 import { fetchAttestation, computeMessageHash, getTransferFees, getMessageFromTx } from './attestation.js';
-import { buildDepositForBurnTx, buildReceiveMessageTx, type DepositForBurnParams } from './evm.js';
+import { buildDepositForBurnTx, buildReceiveMessageTx, getApprovalTxData, type DepositForBurnParams } from './evm.js';
 import { buildStarknetBurnMulticall, buildStarknetMintCall } from './starknet.js';
 import { buildSolanaBurnInstruction, buildSolanaMintInstruction } from './solana.js';
 import type { Hex, Address } from 'viem';
@@ -55,6 +55,12 @@ export interface InitiateBridgeParams {
 export interface BurnTxData {
 	// For EVM chains
 	evm?: {
+		to: Address;
+		data: Hex;
+		chainId: number;
+	};
+	// EVM approve transaction (if user needs to approve TokenMessenger)
+	evmApprove?: {
 		to: Address;
 		data: Hex;
 		chainId: number;
@@ -436,10 +442,24 @@ export class CCTPService {
 		params: DepositForBurnParams & { userAddress: string }
 	): BurnTxData {
 		switch (sourceConfig.type) {
-			case 'evm':
+			case 'evm': {
+				const burnTx = buildDepositForBurnTx(sourceConfig.domainId, params);
+				// Build approve transaction for USDC -> TokenMessenger (max approval for one-time approval)
+				const MAX_UINT256 = 2n ** 256n - 1n;
+				const approveData = getApprovalTxData(
+					sourceConfig.usdc as Address,
+					sourceConfig.tokenMessenger as Address,
+					MAX_UINT256
+				);
 				return {
-					evm: buildDepositForBurnTx(sourceConfig.domainId, params)
+					evm: burnTx,
+					evmApprove: {
+						to: sourceConfig.usdc as Address,
+						data: approveData,
+						chainId: burnTx.chainId
+					}
 				};
+			}
 
 			case 'starknet':
 				return {

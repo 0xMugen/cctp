@@ -53,6 +53,12 @@ export interface BurnTxData {
 		data: string;
 		chainId: number;
 	};
+	// EVM approve transaction (if user needs to approve TokenMessenger)
+	evmApprove?: {
+		to: string; // USDC token address
+		data: string; // approve(spender, amount) encoded
+		chainId: number;
+	};
 	starknet?: {
 		calls: Array<{
 			contractAddress: string;

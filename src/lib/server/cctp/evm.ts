@@ -7,14 +7,22 @@ import {
 	pad,
 	type TransactionReceipt
 } from 'viem';
-import { getChainConfig, STARKNET_DOMAIN_ID } from './config.js';
+import { getChainConfig } from './config.js';
 
-// CCTP Contract ABIs
+// CCTP V2 Contract ABIs
 export const TOKEN_MESSENGER_ABI = parseAbi([
-	'function depositForBurn(uint256 amount, uint32 destinationDomain, bytes32 mintRecipient, address burnToken) external returns (uint64 nonce)',
-	'function depositForBurnWithCaller(uint256 amount, uint32 destinationDomain, bytes32 mintRecipient, address burnToken, bytes32 destinationCaller) external returns (uint64 nonce)',
-	'event DepositForBurn(uint64 indexed nonce, address indexed burnToken, uint256 amount, address indexed depositor, bytes32 mintRecipient, uint32 destinationDomain, bytes32 destinationTokenMessenger, bytes32 destinationCaller)'
+	// V2 depositForBurn with maxFee and minFinalityThreshold
+	'function depositForBurn(uint256 amount, uint32 destinationDomain, bytes32 mintRecipient, address burnToken, bytes32 destinationCaller, uint256 maxFee, uint32 minFinalityThreshold) external returns (uint64 nonce)',
+	'function depositForBurnWithHook(uint256 amount, uint32 destinationDomain, bytes32 mintRecipient, address burnToken, bytes32 destinationCaller, uint256 maxFee, uint32 minFinalityThreshold, bytes hookData) external returns (uint64 nonce)',
+	// V2 event signature
+	'event DepositForBurn(address indexed burnToken, uint256 amount, address indexed depositor, bytes32 mintRecipient, uint32 destinationDomain, bytes32 destinationTokenMessenger, bytes32 destinationCaller, uint256 maxFee, uint32 indexed minFinalityThreshold, bytes hookData)'
 ]);
+
+// CCTP V2 Finality thresholds
+export const FINALITY_THRESHOLD = {
+	FAST: 1000,      // Confirmed level - faster attestation
+	STANDARD: 2000   // Finalized level - more secure
+} as const;
 
 export const MESSAGE_TRANSMITTER_ABI = parseAbi([
 	'function receiveMessage(bytes message, bytes attestation) external returns (bool success)',
@@ -33,6 +41,10 @@ export interface DepositForBurnParams {
 	destinationDomain: number;
 	mintRecipient: string; // Recipient address on destination chain
 	burnToken: Address;
+	// V2 parameters
+	destinationCaller?: Hex; // Optional: restrict who can call receiveMessage (bytes32(0) = anyone)
+	maxFee?: bigint; // Maximum fee in burnToken units (default: 0 for no fee)
+	minFinalityThreshold?: number; // 1000 = fast (confirmed), 2000 = standard (finalized)
 }
 
 export interface ParsedMessageSentEvent {
@@ -79,44 +91,6 @@ export function starknetAddressToBytes32(address: string): Hex {
 	// Starknet addresses are already 32 bytes (252 bits)
 	const cleanAddress = address.toLowerCase().replace('0x', '');
 	return `0x${cleanAddress.padStart(64, '0')}` as Hex;
-}
-
-/**
- * Generate the transaction data for depositForBurn
- */
-export function getDepositForBurnTxData(params: DepositForBurnParams): {
-	to: Address;
-	data: Hex;
-	chainId: number;
-} {
-	// Get the source chain config (we need to know which EVM chain)
-	// This assumes we're burning on an EVM chain to send to Starknet
-	const destConfig = getChainConfig(params.destinationDomain);
-	if (!destConfig) {
-		throw new Error(`Unknown destination domain: ${params.destinationDomain}`);
-	}
-
-	// Convert recipient address based on destination chain type
-	let mintRecipientBytes32: Hex;
-	if (destConfig.type === 'starknet') {
-		mintRecipientBytes32 = starknetAddressToBytes32(params.mintRecipient);
-	} else {
-		mintRecipientBytes32 = addressToBytes32(params.mintRecipient);
-	}
-
-	const data = encodeFunctionData({
-		abi: TOKEN_MESSENGER_ABI,
-		functionName: 'depositForBurn',
-		args: [params.amount, params.destinationDomain, mintRecipientBytes32, params.burnToken]
-	});
-
-	// Get source chain config to get TokenMessenger address
-	// We need the caller to specify which chain they're on
-	return {
-		to: '0x0000000000000000000000000000000000000000' as Address, // Caller must set this
-		data,
-		chainId: 0 // Caller must set this
-	};
 }
 
 /**
@@ -167,16 +141,18 @@ export function parseMessageSentEvent(receipt: TransactionReceipt): ParsedMessag
 }
 
 /**
- * Parse DepositForBurn event from transaction receipt
+ * Parse DepositForBurn event from transaction receipt (CCTP V2)
+ * Note: V2 event doesn't include nonce directly - get it from MessageSent event instead
  */
 export function parseDepositForBurnEvent(
 	receipt: TransactionReceipt
 ): {
-	nonce: bigint;
 	amount: bigint;
 	depositor: Address;
 	mintRecipient: Hex;
 	destinationDomain: number;
+	maxFee: bigint;
+	minFinalityThreshold: number;
 } | null {
 	for (const log of receipt.logs) {
 		try {
@@ -188,7 +164,6 @@ export function parseDepositForBurnEvent(
 
 			if (decoded.eventName === 'DepositForBurn') {
 				const args = decoded.args as {
-					nonce: bigint;
 					burnToken: Address;
 					amount: bigint;
 					depositor: Address;
@@ -196,14 +171,18 @@ export function parseDepositForBurnEvent(
 					destinationDomain: number;
 					destinationTokenMessenger: Hex;
 					destinationCaller: Hex;
+					maxFee: bigint;
+					minFinalityThreshold: number;
+					hookData: Hex;
 				};
 
 				return {
-					nonce: args.nonce,
 					amount: args.amount,
 					depositor: args.depositor,
 					mintRecipient: args.mintRecipient,
-					destinationDomain: args.destinationDomain
+					destinationDomain: args.destinationDomain,
+					maxFee: args.maxFee,
+					minFinalityThreshold: args.minFinalityThreshold
 				};
 			}
 		} catch {
@@ -226,7 +205,7 @@ export function getReceiveMessageTxData(message: Hex, attestation: Hex): Hex {
 }
 
 /**
- * Build the complete deposit for burn transaction for a specific EVM chain
+ * Build the complete deposit for burn transaction for a specific EVM chain (CCTP V2)
  */
 export function buildDepositForBurnTx(
 	sourceDomainId: number,
@@ -261,10 +240,23 @@ export function buildDepositForBurnTx(
 		mintRecipientBytes32 = addressToBytes32(params.mintRecipient);
 	}
 
+	// V2 parameters with defaults
+	const destinationCaller = params.destinationCaller ?? ('0x' + '0'.repeat(64)) as Hex; // bytes32(0) = anyone can call
+	const maxFee = params.maxFee ?? 0n; // No fee by default
+	const minFinalityThreshold = params.minFinalityThreshold ?? FINALITY_THRESHOLD.FAST; // Fast by default
+
 	const data = encodeFunctionData({
 		abi: TOKEN_MESSENGER_ABI,
 		functionName: 'depositForBurn',
-		args: [params.amount, params.destinationDomain, mintRecipientBytes32, params.burnToken]
+		args: [
+			params.amount,
+			params.destinationDomain,
+			mintRecipientBytes32,
+			params.burnToken,
+			destinationCaller,
+			maxFee,
+			minFinalityThreshold
+		]
 	});
 
 	return {

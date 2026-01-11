@@ -51,37 +51,6 @@ export async function fetchAttestation(messageHash: string): Promise<string | nu
 	}
 }
 
-/**
- * Fetch V2 attestation (for Fast Transfer support)
- */
-export async function fetchAttestationV2(messageHash: string): Promise<string | null> {
-	const apiHost = getIrisApiHost();
-	const url = `${apiHost}/v2/attestations/${messageHash}`;
-
-	try {
-		const response = await fetch(url);
-
-		if (response.status === 404) {
-			return null;
-		}
-
-		if (!response.ok) {
-			throw new Error(`Attestation V2 API error: ${response.status} ${response.statusText}`);
-		}
-
-		const data = (await response.json()) as AttestationResponse;
-
-		if (data.status === 'pending') {
-			return null;
-		}
-
-		return data.attestation || null;
-	} catch (error) {
-		console.error('Error fetching V2 attestation:', error);
-		throw error;
-	}
-}
-
 export interface MessageResponseV2 {
 	messages: Array<{
 		message: string;
@@ -169,38 +138,4 @@ export async function getTransferFees(): Promise<{
 	// CCTP protocol doesn't charge fees for transfers
 	// Users only pay gas fees on source and destination chains
 	return { minimumFee: 0, currency: 'USDC' };
-}
-
-/**
- * Poll for attestation with exponential backoff
- * Useful for waiting on attestations in a controlled manner
- */
-export async function pollForAttestation(
-	messageHash: string,
-	options: {
-		maxAttempts?: number;
-		initialDelayMs?: number;
-		maxDelayMs?: number;
-	} = {}
-): Promise<string | null> {
-	const { maxAttempts = 60, initialDelayMs = 2000, maxDelayMs = 10000 } = options;
-
-	let delay = initialDelayMs;
-	let attempts = 0;
-
-	while (attempts < maxAttempts) {
-		const attestation = await fetchAttestation(messageHash);
-
-		if (attestation) {
-			return attestation;
-		}
-
-		attempts++;
-		await new Promise((resolve) => setTimeout(resolve, delay));
-
-		// Exponential backoff with max cap
-		delay = Math.min(delay * 1.5, maxDelayMs);
-	}
-
-	return null;
 }

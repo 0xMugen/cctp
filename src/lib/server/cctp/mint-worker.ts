@@ -2,6 +2,12 @@ import type { PoolClient } from 'pg';
 import { pool } from '../database.js';
 import { cctpService } from './service.js';
 import { executeMint, isRelayerEnabled, findExistingMintTx } from './relayer.js';
+import {
+	executeStarknetMint,
+	isStarknetRelayerEnabled,
+	findExistingStarknetMintTx
+} from './starknet-relayer.js';
+import { getChainConfig } from './config.js';
 import { parseNonceFromMessage } from './evm.js';
 import type { Address, Hex } from 'viem';
 
@@ -32,8 +38,8 @@ class MintWorker {
 	 * Start the mint worker
 	 */
 	async start(): Promise<void> {
-		if (!isRelayerEnabled()) {
-			console.log('Mint worker disabled: RELAYER_ENABLED is not true or RELAYER_PRIVATE_KEY not set');
+		if (!isRelayerEnabled() && !isStarknetRelayerEnabled()) {
+			console.log('Mint worker disabled: No relayers configured (check RELAYER_ENABLED and relayer keys)');
 			return;
 		}
 
@@ -303,70 +309,153 @@ class MintWorker {
 				return;
 			}
 
-			// Check if we have mint data
-			if (!mintTxData?.evm) {
-				console.log(`[Mint] No EVM mint data for ${job.id}, skipping (might be non-EVM destination)`);
-				// For now, only handle EVM destinations
-				// TODO: Add Starknet/Solana mint support
+			// Get destination chain config for routing
+			const destConfig = getChainConfig(job.destDomainId);
+			if (!destConfig) {
+				console.error(`[Mint] Unknown destination domain ${job.destDomainId}, removing from queue`);
 				this.jobs.delete(job.id);
 				return;
 			}
 
-			// Store info needed for recovery
-			if (transaction.messageBytes) {
-				transactionInfo = {
-					messageBytes: transaction.messageBytes,
-					messageTransmitter: mintTxData.evm.to as Address
-				};
-			}
-
-			const { to, data } = mintTxData.evm;
-
-			// Execute the mint
-			const { txHash, success } = await executeMint(
-				job.destDomainId,
-				to as Address,
-				data as Hex
-			);
-
-			if (success) {
-				// Record successful mint
-				await cctpService.recordMintTx(job.id, txHash);
-				this.jobs.delete(job.id);
-				console.log(`✅ Mint completed for ${job.id}: ${txHash}`);
-			} else {
-				// Transaction reverted, retry
-				job.attempts++;
-				if (job.attempts >= this.MAX_ATTEMPTS) {
+			// Route based on destination chain type
+			if (destConfig.type === 'evm') {
+				// EVM destination - check for EVM mint data
+				if (!mintTxData?.evm) {
+					console.log(`[Mint] No EVM mint data for ${job.id}, skipping`);
 					this.jobs.delete(job.id);
-					await cctpService.markFailed(job.id, `Mint transaction reverted after ${this.MAX_ATTEMPTS} attempts`);
-					console.error(`❌ Mint failed for ${job.id}: max attempts reached`);
-				} else {
-					job.nextRetry = Date.now() + this.calculateBackoff(job.attempts);
-					console.warn(`[Mint] Transaction reverted for ${job.id}, will retry (attempt ${job.attempts})`);
+					return;
 				}
+
+				if (!isRelayerEnabled()) {
+					console.log(`[Mint] EVM relayer not configured for ${job.id}, skipping`);
+					this.jobs.delete(job.id);
+					return;
+				}
+
+				// Store info needed for recovery
+				if (transaction.messageBytes) {
+					transactionInfo = {
+						messageBytes: transaction.messageBytes,
+						messageTransmitter: mintTxData.evm.to as Address
+					};
+				}
+
+				const { to, data } = mintTxData.evm;
+
+				// Execute the EVM mint
+				const { txHash, success } = await executeMint(
+					job.destDomainId,
+					to as Address,
+					data as Hex
+				);
+
+				if (success) {
+					await cctpService.recordMintTx(job.id, txHash);
+					this.jobs.delete(job.id);
+					console.log(`✅ EVM mint completed for ${job.id}: ${txHash}`);
+				} else {
+					job.attempts++;
+					if (job.attempts >= this.MAX_ATTEMPTS) {
+						this.jobs.delete(job.id);
+						await cctpService.markFailed(
+							job.id,
+							`EVM mint transaction reverted after ${this.MAX_ATTEMPTS} attempts`
+						);
+						console.error(`❌ EVM mint failed for ${job.id}: max attempts reached`);
+					} else {
+						job.nextRetry = Date.now() + this.calculateBackoff(job.attempts);
+						console.warn(
+							`[Mint] EVM transaction reverted for ${job.id}, will retry (attempt ${job.attempts})`
+						);
+					}
+				}
+			} else if (destConfig.type === 'starknet') {
+				// Starknet destination - check for Starknet mint data
+				if (!mintTxData?.starknet) {
+					console.log(`[Mint] No Starknet mint data for ${job.id}, skipping`);
+					this.jobs.delete(job.id);
+					return;
+				}
+
+				if (!isStarknetRelayerEnabled()) {
+					console.log(`[Mint] Starknet relayer not configured for ${job.id}, skipping`);
+					this.jobs.delete(job.id);
+					return;
+				}
+
+				// Store info needed for recovery
+				if (transaction.messageBytes) {
+					transactionInfo = {
+						messageBytes: transaction.messageBytes,
+						messageTransmitter: destConfig.messageTransmitter as Address
+					};
+				}
+
+				// Execute the Starknet mint
+				const { txHash, success } = await executeStarknetMint(mintTxData.starknet.calls);
+
+				if (success) {
+					await cctpService.recordMintTx(job.id, txHash);
+					this.jobs.delete(job.id);
+					console.log(`✅ Starknet mint completed for ${job.id}: ${txHash}`);
+				} else {
+					job.attempts++;
+					if (job.attempts >= this.MAX_ATTEMPTS) {
+						this.jobs.delete(job.id);
+						await cctpService.markFailed(
+							job.id,
+							`Starknet mint transaction reverted after ${this.MAX_ATTEMPTS} attempts`
+						);
+						console.error(`❌ Starknet mint failed for ${job.id}: max attempts reached`);
+					} else {
+						job.nextRetry = Date.now() + this.calculateBackoff(job.attempts);
+						console.warn(
+							`[Mint] Starknet transaction reverted for ${job.id}, will retry (attempt ${job.attempts})`
+						);
+					}
+				}
+			} else {
+				// Unsupported chain type (e.g., Solana)
+				console.log(
+					`[Mint] Chain type '${destConfig.type}' not yet supported for ${job.id}, skipping`
+				);
+				this.jobs.delete(job.id);
+				return;
 			}
 		} catch (error) {
 			const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+			const errorMsgLower = errorMsg.toLowerCase();
 			console.error(`Error processing mint for ${job.id}:`, error);
 
-			// Check if this is a "Nonce already used" error
+			// Check for "nonce already used" type errors
 			// This means the mint was already executed on-chain but we failed to record it
-			if (errorMsg.includes('Nonce already used') && transactionInfo) {
-				console.log(`[Mint] Detected 'Nonce already used' for ${job.id}, attempting recovery...`);
+			const isNonceError =
+				errorMsgLower.includes('nonce already used') ||
+				errorMsgLower.includes('already processed') ||
+				errorMsgLower.includes('message already received');
+
+			if (isNonceError && transactionInfo) {
+				console.log(`[Mint] Detected nonce/message reuse for ${job.id}, attempting recovery...`);
 
 				try {
 					const { sourceDomain, nonce } = parseNonceFromMessage(
 						transactionInfo.messageBytes as Hex
 					);
 
-					// Try to find the existing mint transaction on-chain
-					const existingTxHash = await findExistingMintTx(
-						job.destDomainId,
-						transactionInfo.messageTransmitter,
-						sourceDomain,
-						nonce
-					);
+					let existingTxHash: string | null = null;
+					const destConfig = getChainConfig(job.destDomainId);
+
+					// Try to find the existing mint transaction based on chain type
+					if (destConfig?.type === 'evm') {
+						existingTxHash = await findExistingMintTx(
+							job.destDomainId,
+							transactionInfo.messageTransmitter,
+							sourceDomain,
+							nonce
+						);
+					} else if (destConfig?.type === 'starknet') {
+						existingTxHash = await findExistingStarknetMintTx(sourceDomain, nonce);
+					}
 
 					if (existingTxHash) {
 						// Found it! Record and complete
@@ -381,7 +470,9 @@ class MintWorker {
 					const placeholderHash = `0x${'0'.repeat(64)}` as Hex;
 					await cctpService.recordMintTx(job.id, placeholderHash);
 					this.jobs.delete(job.id);
-					console.log(`✅ Mint already executed for ${job.id} (nonce used on-chain, tx not found in recent blocks)`);
+					console.log(
+						`✅ Mint already executed for ${job.id} (nonce used on-chain, tx not found in recent blocks)`
+					);
 					return;
 				} catch (recoveryError) {
 					console.error(`[Mint] Recovery failed for ${job.id}:`, recoveryError);

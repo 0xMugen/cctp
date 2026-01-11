@@ -138,7 +138,7 @@ async function initiateBridge(params: {
 }
 
 /**
- * Execute EVM burn transaction
+ * Execute EVM burn transaction (with approval if needed)
  */
 async function executeEvmBurn(txData: BurnTxData): Promise<string> {
 	const config = get(wagmiConfig);
@@ -146,19 +146,72 @@ async function executeEvmBurn(txData: BurnTxData): Promise<string> {
 		throw new Error('EVM not configured');
 	}
 
-	const { sendTransaction, waitForTransactionReceipt, switchChain } = await import('@wagmi/core');
+	const { sendTransaction, waitForTransactionReceipt, switchChain, readContract, getAccount } = await import(
+		'@wagmi/core'
+	);
 
-	// Ensure we're on the correct chain
-	try {
-		await switchChain(config, { chainId: txData.evm.chainId });
-	} catch {
-		// May already be on correct chain
+	const targetChainId = txData.evm.chainId;
+
+	// Ensure we're on the correct chain and wait for it to complete
+	const account = getAccount(config);
+	if (account.chainId !== targetChainId) {
+		try {
+			await switchChain(config, { chainId: targetChainId });
+		} catch (e) {
+			console.error('Failed to switch chain:', e);
+			throw new Error(`Please switch to the correct network (chain ID: ${targetChainId})`);
+		}
 	}
 
+	// Check if we need to approve first
+	if (txData.evmApprove) {
+		const userAddress = get(evmAddress);
+		if (userAddress) {
+			// Check current allowance
+			const allowance = await readContract(config, {
+				address: txData.evmApprove.to as `0x${string}`,
+				abi: [
+					{
+						name: 'allowance',
+						type: 'function',
+						stateMutability: 'view',
+						inputs: [
+							{ name: 'owner', type: 'address' },
+							{ name: 'spender', type: 'address' }
+						],
+						outputs: [{ name: '', type: 'uint256' }]
+					}
+				],
+				functionName: 'allowance',
+				args: [userAddress as `0x${string}`, txData.evm.to as `0x${string}`]
+			});
+
+			// Parse transfer amount from burn data (first 32 bytes after function selector)
+			const transferAmount = BigInt('0x' + txData.evm.data.slice(10, 74));
+
+			if ((allowance as bigint) < transferAmount) {
+				// Need to approve - update bridge step
+				bridgeStep.set('approving');
+
+				const approveHash = await sendTransaction(config, {
+					to: txData.evmApprove.to as `0x${string}`,
+					data: txData.evmApprove.data as `0x${string}`,
+					value: 0n
+				});
+
+				await waitForTransactionReceipt(config, { hash: approveHash });
+
+				// Back to burning step
+				bridgeStep.set('burning');
+			}
+		}
+	}
+
+	// Execute the burn transaction
 	const hash = await sendTransaction(config, {
 		to: txData.evm.to as `0x${string}`,
 		data: txData.evm.data as `0x${string}`,
-		chainId: txData.evm.chainId
+		value: 0n
 	});
 
 	await waitForTransactionReceipt(config, { hash });
@@ -237,20 +290,26 @@ async function executeEvmMint(mintTxData: BurnTxData): Promise<string> {
 		throw new Error('EVM not configured');
 	}
 
-	const { sendTransaction, waitForTransactionReceipt, switchChain } = await import('@wagmi/core');
+	const { sendTransaction, waitForTransactionReceipt, switchChain, getAccount } = await import('@wagmi/core');
+
+	const targetChainId = mintTxData.evm.chainId;
 
 	// Ensure we're on the correct chain
-	try {
-		await switchChain(config, { chainId: mintTxData.evm.chainId });
-	} catch {
-		// May already be on correct chain
+	const account = getAccount(config);
+	if (account.chainId !== targetChainId) {
+		try {
+			await switchChain(config, { chainId: targetChainId });
+		} catch (e) {
+			console.error('Failed to switch chain:', e);
+			throw new Error(`Please switch to the correct network (chain ID: ${targetChainId})`);
+		}
 	}
 
 	// Send transaction
 	const hash = await sendTransaction(config, {
 		to: mintTxData.evm.to as `0x${string}`,
 		data: mintTxData.evm.data as `0x${string}`,
-		chainId: mintTxData.evm.chainId
+		value: 0n
 	});
 
 	// Wait for confirmation

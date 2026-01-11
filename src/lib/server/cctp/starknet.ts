@@ -62,7 +62,7 @@ export function solanaAddressToU256(address: string): [string, string] {
 }
 
 /**
- * TODO: Build the deposit_for_burn call for Starknet
+ * Build the deposit_for_burn call for Starknet
  * Burns USDC on Starknet to mint on destination chain
  *
  * Function signature from Circle's starknet-cctp:
@@ -245,13 +245,24 @@ export function buildStarknetBurnMulticall(params: StarknetDepositForBurnParams)
  * Get the estimated gas for a Starknet transaction
  * Returns fee in WEI (ETH on Starknet)
  */
-export async function estimateStarknetFee(_calls: Call[]): Promise<bigint> {
-	// In production, you'd use the Starknet provider to estimate
-	// For now, return a placeholder
-	// const account = new Account(provider, address, privateKey);
-	// const estimation = await account.estimateInvokeFee(calls);
-	// return estimation.overall_fee;
+export async function estimateStarknetFee(calls: Call[]): Promise<bigint> {
+	// Dynamically import to avoid circular dependency
+	const { getStarknetRelayerAccount, isStarknetRelayerEnabled } = await import(
+		'./starknet-relayer.js'
+	);
 
-	// Placeholder: 0.001 ETH
-	return BigInt('1000000000000000');
+	if (!isStarknetRelayerEnabled()) {
+		// Return placeholder when relayer not configured
+		return BigInt('1000000000000000'); // 0.001 ETH
+	}
+
+	try {
+		const account = getStarknetRelayerAccount();
+		const estimation = await account.estimateInvokeFee(calls);
+		return estimation.overall_fee;
+	} catch (error) {
+		console.error('Failed to estimate Starknet fee:', error);
+		// Return conservative estimate on failure
+		return BigInt('1000000000000000'); // 0.001 ETH
+	}
 }
