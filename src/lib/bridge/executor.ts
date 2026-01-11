@@ -24,6 +24,45 @@ interface ExecuteBridgeParams {
 }
 
 /**
+ * Sanitize error messages to remove long hex data and request details
+ */
+function sanitizeErrorMessage(error: unknown): string {
+	if (!(error instanceof Error)) {
+		return 'An unknown error occurred';
+	}
+
+	const message = error.message;
+
+	// Check for user rejection patterns
+	if (message.includes('User rejected') || message.includes('User denied')) {
+		return 'Transaction rejected by user';
+	}
+
+	// Check for common wallet errors
+	if (message.includes('insufficient funds')) {
+		return 'Insufficient funds for transaction';
+	}
+
+	// Remove "Request Arguments:" section and everything after
+	const requestArgsIndex = message.indexOf('Request Arguments:');
+	if (requestArgsIndex > 0) {
+		return message.slice(0, requestArgsIndex).trim();
+	}
+
+	// Truncate any long hex strings (more than 20 chars)
+	const sanitized = message.replace(/0x[a-fA-F0-9]{20,}/g, (match) =>
+		`${match.slice(0, 10)}...${match.slice(-6)}`
+	);
+
+	// Limit overall length
+	if (sanitized.length > 200) {
+		return sanitized.slice(0, 200) + '...';
+	}
+
+	return sanitized;
+}
+
+/**
  * Execute a bridge transaction
  */
 export async function executeBridge(params: ExecuteBridgeParams): Promise<void> {
@@ -119,7 +158,7 @@ export async function executeBridge(params: ExecuteBridgeParams): Promise<void> 
 	} catch (error) {
 		console.error('Bridge execution failed:', error);
 		bridgeStep.set('failed');
-		bridgeError.set(error instanceof Error ? error.message : 'Bridge failed');
+		bridgeError.set(sanitizeErrorMessage(error));
 		throw error;
 	}
 }

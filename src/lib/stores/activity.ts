@@ -7,6 +7,45 @@ import { chains } from './bridge.js';
 // EVM domain IDs (non-Starknet destinations require manual claim)
 const EVM_DOMAIN_IDS = [0, 2, 3, 6, 7]; // Ethereum, Optimism, Arbitrum, Base, Polygon
 
+/**
+ * Sanitize error messages to remove long hex data
+ */
+function sanitizeErrorMessage(error: unknown): string {
+	if (!(error instanceof Error)) {
+		return 'An unknown error occurred';
+	}
+
+	const message = error.message;
+
+	// Check for user rejection patterns
+	if (message.includes('User rejected') || message.includes('User denied')) {
+		return 'Transaction rejected by user';
+	}
+
+	// Check for common wallet errors
+	if (message.includes('insufficient funds')) {
+		return 'Insufficient funds for transaction';
+	}
+
+	// Remove "Request Arguments:" section and everything after
+	const requestArgsIndex = message.indexOf('Request Arguments:');
+	if (requestArgsIndex > 0) {
+		return message.slice(0, requestArgsIndex).trim();
+	}
+
+	// Truncate any long hex strings (more than 20 chars)
+	const sanitized = message.replace(/0x[a-fA-F0-9]{20,}/g, (match) =>
+		`${match.slice(0, 10)}...${match.slice(-6)}`
+	);
+
+	// Limit overall length
+	if (sanitized.length > 200) {
+		return sanitized.slice(0, 200) + '...';
+	}
+
+	return sanitized;
+}
+
 // Activity state
 export const transactions = writable<ActivityTransaction[]>([]);
 export const activityLoading = writable(false);
@@ -226,8 +265,7 @@ export async function claimTransaction(tx: ActivityTransaction): Promise<boolean
 		return true;
 	} catch (error) {
 		console.error('Failed to claim:', error);
-		const message = error instanceof Error ? error.message : 'Failed to claim';
-		claimError.set(message);
+		claimError.set(sanitizeErrorMessage(error));
 		return false;
 	} finally {
 		claimingTxId.set(null);
