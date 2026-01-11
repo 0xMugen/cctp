@@ -24,9 +24,10 @@
 		isFastTransfer,
 		resetBridge
 	} from '$lib/stores/bridge';
-	import { evmConnected } from '$lib/stores/evm';
-	import { starknetConnected } from '$lib/stores/starknet';
+	import { evmConnected, evmAddress } from '$lib/stores/evm';
+	import { starknetConnected, starknetAddress } from '$lib/stores/starknet';
 	import { executeBridge } from '$lib/bridge/executor';
+	import { fetchSourceBalance } from '$lib/stores/balance';
 
 	let quoteTimeout: ReturnType<typeof setTimeout> | null = null;
 	let showBridgeAgain = $state(false);
@@ -45,12 +46,23 @@
 
 	$effect(() => {
 		if ($bridgeStep === 'completed') {
+			// Refresh balance after bridge completes
+			fetchSourceBalance();
 			const timeout = setTimeout(() => {
 				showBridgeAgain = true;
 			}, 2000);
 			return () => clearTimeout(timeout);
 		} else {
 			showBridgeAgain = false;
+		}
+	});
+
+	$effect(() => {
+		const chain = $sourceChain;
+		const evm = $evmAddress;
+		const sn = $starknetAddress;
+		if (chain) {
+			fetchSourceBalance();
 		}
 	});
 

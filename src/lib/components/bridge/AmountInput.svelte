@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { sourceBalance, balanceLoading, getRawBalance } from '$lib/stores/balance';
+
 	interface Props {
 		value: string;
 		onInput: (value: string) => void;
@@ -25,10 +27,47 @@
 
 		onInput(newValue);
 	}
+
+	async function handleMax() {
+		const rawBalance = await getRawBalance();
+		if (rawBalance !== null && rawBalance > BigInt(0)) {
+			// Format balance to display units
+			const whole = rawBalance / BigInt(1e6);
+			const fraction = rawBalance % BigInt(1e6);
+			let formatted: string;
+			if (fraction === BigInt(0)) {
+				formatted = whole.toString();
+			} else {
+				const fractionStr = fraction.toString().padStart(6, '0').replace(/0+$/, '');
+				formatted = `${whole}.${fractionStr}`;
+			}
+			onInput(formatted);
+		}
+	}
 </script>
 
 <div class="space-y-2">
-	<label class="block text-sm font-medium text-gray-400">Amount</label>
+	<div class="flex items-center justify-between">
+		<label class="block text-sm font-medium text-gray-400">Amount</label>
+		{#if $sourceBalance !== null}
+			<div class="flex items-center gap-2 text-sm">
+				<span class="text-gray-500">Balance:</span>
+				{#if $balanceLoading}
+					<span class="text-gray-400">...</span>
+				{:else}
+					<span class="text-gray-300">{$sourceBalance} USDC</span>
+					<button
+						type="button"
+						onclick={handleMax}
+						{disabled}
+						class="rounded bg-gray-600 px-2 py-0.5 text-xs font-medium text-blue-400 transition hover:bg-gray-500 hover:text-blue-300 disabled:cursor-not-allowed disabled:opacity-50"
+					>
+						MAX
+					</button>
+				{/if}
+			</div>
+		{/if}
+	</div>
 	<div class="relative">
 		<input
 			type="text"
