@@ -34,8 +34,9 @@ function sanitizeErrorMessage(error: unknown): string {
 	}
 
 	// Truncate any long hex strings (more than 20 chars)
-	const sanitized = message.replace(/0x[a-fA-F0-9]{20,}/g, (match) =>
-		`${match.slice(0, 10)}...${match.slice(-6)}`
+	const sanitized = message.replace(
+		/0x[a-fA-F0-9]{20,}/g,
+		(match) => `${match.slice(0, 10)}...${match.slice(-6)}`
 	);
 
 	// Limit overall length
@@ -63,9 +64,7 @@ export const claimError = writable<string | null>(null);
 export const claimableTransactions = derived(transactions, ($transactions) =>
 	$transactions.filter(
 		(tx) =>
-			tx.status === 'attested' &&
-			EVM_DOMAIN_IDS.includes(tx.destDomainId) &&
-			tx.mintTxData?.evm
+			tx.status === 'attested' && EVM_DOMAIN_IDS.includes(tx.destDomainId) && tx.mintTxData?.evm
 	)
 );
 

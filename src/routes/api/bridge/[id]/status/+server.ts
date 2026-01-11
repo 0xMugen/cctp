@@ -90,7 +90,7 @@ export const GET: RequestHandler = async ({ params }) => {
 			createdAt: transaction.createdAt,
 			updatedAt: transaction.updatedAt,
 			// Include mint transaction data if attestation is ready (only needed if relayer won't mint)
-			mintTxData: relayerWillMint ? null : (mintTxData || null),
+			mintTxData: relayerWillMint ? null : mintTxData || null,
 			// Flag indicating relayer will handle mint automatically
 			relayerWillMint
 		});

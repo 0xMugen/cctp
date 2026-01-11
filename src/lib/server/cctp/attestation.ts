@@ -104,7 +104,9 @@ export async function checkMessageDelivered(
 				isDelivered = deliveredStatuses.includes(status);
 			}
 
-			console.log(`[CCTP] Message status for ${txHash}: ${msg.status}, isStarknetDest: ${isStarknetDest}, delivered: ${isDelivered}`);
+			console.log(
+				`[CCTP] Message status for ${txHash}: ${msg.status}, isStarknetDest: ${isStarknetDest}, delivered: ${isDelivered}`
+			);
 
 			return { delivered: isDelivered, status: msg.status };
 		}
@@ -152,9 +154,8 @@ export async function getMessageFromTx(
 		if (data.messages && data.messages.length > 0) {
 			const msg = data.messages[0];
 			// Only return attestation if it's actual hex data (not "PENDING" string)
-			const hasValidAttestation = msg.attestation &&
-				msg.attestation !== 'PENDING' &&
-				msg.attestation.startsWith('0x');
+			const hasValidAttestation =
+				msg.attestation && msg.attestation !== 'PENDING' && msg.attestation.startsWith('0x');
 			return {
 				message: msg.message,
 				eventNonce: msg.eventNonce,

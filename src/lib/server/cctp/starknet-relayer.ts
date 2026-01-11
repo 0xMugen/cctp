@@ -79,9 +79,7 @@ export async function executeStarknetMint(
 		// Add 30% buffer for safety (Starknet fees can vary)
 		const maxFee = (estimation.overall_fee * 130n) / 100n;
 
-		console.log(
-			`[StarknetRelayer] Estimated fee: ${estimation.overall_fee}, using max: ${maxFee}`
-		);
+		console.log(`[StarknetRelayer] Estimated fee: ${estimation.overall_fee}, using max: ${maxFee}`);
 
 		// Execute the transaction
 		const { transaction_hash } = await relayerAccount.execute(calls, { maxFee });
@@ -95,8 +93,7 @@ export async function executeStarknetMint(
 		});
 
 		// Check execution status (type narrowing for non-rejected receipts)
-		const executionStatus =
-			'execution_status' in receipt ? receipt.execution_status : undefined;
+		const executionStatus = 'execution_status' in receipt ? receipt.execution_status : undefined;
 
 		if (executionStatus === 'SUCCEEDED') {
 			console.log(`[StarknetRelayer] Mint confirmed: ${transaction_hash}`);

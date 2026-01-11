@@ -260,7 +260,11 @@ export function parseSolanaMessageEvent(logs: string[]): {
  */
 export function getUsdcTokenAccount(wallet: PublicKey): PublicKey {
 	const [tokenAccount] = PublicKey.findProgramAddressSync(
-		[wallet.toBuffer(), new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA').toBuffer(), new PublicKey(SOLANA_USDC_MINT).toBuffer()],
+		[
+			wallet.toBuffer(),
+			new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA').toBuffer(),
+			new PublicKey(SOLANA_USDC_MINT).toBuffer()
+		],
 		new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL') // Associated Token Program
 	);
 	return tokenAccount;

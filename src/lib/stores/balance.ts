@@ -28,7 +28,11 @@ const ERC20_ABI = [
 /**
  * Fetch EVM USDC balance
  */
-async function fetchEvmBalance(address: string, usdcAddress: string, chainId: number): Promise<bigint> {
+async function fetchEvmBalance(
+	address: string,
+	usdcAddress: string,
+	chainId: number
+): Promise<bigint> {
 	const config = get(wagmiConfig);
 	if (!config) return BigInt(0);
 

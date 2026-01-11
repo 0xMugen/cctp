@@ -194,9 +194,7 @@ export function hexToFeltArray(hex: string): string[] {
  * Parse MessageSent event from Starknet transaction receipt
  * Note: This is a placeholder - actual implementation depends on Starknet CCTP contract events
  */
-export function parseStarknetMessageEvent(
-	events: Array<{ keys: string[]; data: string[] }>
-): {
+export function parseStarknetMessageEvent(events: Array<{ keys: string[]; data: string[] }>): {
 	message: string;
 	nonce: bigint;
 } | null {

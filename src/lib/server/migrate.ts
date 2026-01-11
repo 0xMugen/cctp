@@ -181,7 +181,11 @@ export function splitSqlStatements(content: string): string[] {
 
 		if (char === '$') {
 			let tagEnd = i + 1;
-			while (tagEnd < content.length && content[tagEnd] !== '$' && /[a-zA-Z0-9_]/.test(content[tagEnd])) {
+			while (
+				tagEnd < content.length &&
+				content[tagEnd] !== '$' &&
+				/[a-zA-Z0-9_]/.test(content[tagEnd])
+			) {
 				tagEnd++;
 			}
 

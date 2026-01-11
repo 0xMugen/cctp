@@ -50,8 +50,9 @@ function sanitizeErrorMessage(error: unknown): string {
 	}
 
 	// Truncate any long hex strings (more than 20 chars)
-	const sanitized = message.replace(/0x[a-fA-F0-9]{20,}/g, (match) =>
-		`${match.slice(0, 10)}...${match.slice(-6)}`
+	const sanitized = message.replace(
+		/0x[a-fA-F0-9]{20,}/g,
+		(match) => `${match.slice(0, 10)}...${match.slice(-6)}`
 	);
 
 	// Limit overall length
@@ -81,10 +82,14 @@ export async function executeBridge(params: ExecuteBridgeParams): Promise<void> 
 		const recipient = destChain.type === 'starknet' ? snAddr : evmAddr;
 
 		if (!sender) {
-			throw new Error(`Please connect your ${sourceChain.type === 'starknet' ? 'Starknet' : 'EVM'} wallet`);
+			throw new Error(
+				`Please connect your ${sourceChain.type === 'starknet' ? 'Starknet' : 'EVM'} wallet`
+			);
 		}
 		if (!recipient) {
-			throw new Error(`Please connect your ${destChain.type === 'starknet' ? 'Starknet' : 'EVM'} wallet`);
+			throw new Error(
+				`Please connect your ${destChain.type === 'starknet' ? 'Starknet' : 'EVM'} wallet`
+			);
 		}
 
 		// Step 1: Initiate bridge
@@ -197,9 +202,8 @@ async function executeEvmBurn(txData: BurnTxData): Promise<string> {
 		throw new Error('EVM not configured');
 	}
 
-	const { sendTransaction, waitForTransactionReceipt, switchChain, readContract, getAccount } = await import(
-		'@wagmi/core'
-	);
+	const { sendTransaction, waitForTransactionReceipt, switchChain, readContract, getAccount } =
+		await import('@wagmi/core');
 
 	const targetChainId = txData.evm.chainId;
 
@@ -374,7 +378,9 @@ async function executeEvmMint(mintTxData: BurnTxData): Promise<string> {
 		throw new Error('EVM not configured');
 	}
 
-	const { sendTransaction, waitForTransactionReceipt, switchChain, getAccount } = await import('@wagmi/core');
+	const { sendTransaction, waitForTransactionReceipt, switchChain, getAccount } = await import(
+		'@wagmi/core'
+	);
 
 	const targetChainId = mintTxData.evm.chainId;
 

@@ -74,7 +74,7 @@
                 {isStepComplete(step.key)
 								? 'bg-green-500 text-white'
 								: isStepCurrent(step.key)
-									? 'bg-blue-500 text-white animate-pulse'
+									? 'animate-pulse bg-blue-500 text-white'
 									: 'bg-gray-600 text-gray-400'}"
 						>
 							{#if isStepComplete(step.key)}

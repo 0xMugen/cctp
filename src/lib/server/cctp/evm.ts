@@ -20,8 +20,8 @@ export const TOKEN_MESSENGER_ABI = parseAbi([
 
 // CCTP V2 Finality thresholds
 export const FINALITY_THRESHOLD = {
-	FAST: 1000,      // Confirmed level - faster attestation
-	STANDARD: 2000   // Finalized level - more secure
+	FAST: 1000, // Confirmed level - faster attestation
+	STANDARD: 2000 // Finalized level - more secure
 } as const;
 
 export const MESSAGE_TRANSMITTER_ABI = parseAbi([
@@ -144,9 +144,7 @@ export function parseMessageSentEvent(receipt: TransactionReceipt): ParsedMessag
  * Parse DepositForBurn event from transaction receipt (CCTP V2)
  * Note: V2 event doesn't include nonce directly - get it from MessageSent event instead
  */
-export function parseDepositForBurnEvent(
-	receipt: TransactionReceipt
-): {
+export function parseDepositForBurnEvent(receipt: TransactionReceipt): {
 	amount: bigint;
 	depositor: Address;
 	mintRecipient: Hex;
@@ -241,7 +239,7 @@ export function buildDepositForBurnTx(
 	}
 
 	// V2 parameters with defaults
-	const destinationCaller = params.destinationCaller ?? ('0x' + '0'.repeat(64)) as Hex; // bytes32(0) = anyone can call
+	const destinationCaller = params.destinationCaller ?? (('0x' + '0'.repeat(64)) as Hex); // bytes32(0) = anyone can call
 	const maxFee = params.maxFee ?? 0n; // No fee by default
 	const minFinalityThreshold = params.minFinalityThreshold ?? FINALITY_THRESHOLD.FAST; // Fast by default
 

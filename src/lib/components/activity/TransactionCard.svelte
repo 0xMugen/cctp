@@ -29,9 +29,7 @@
 			: undefined
 	);
 	const mintTxUrl = $derived(
-		transaction.mintTxHash
-			? getTxUrl(transaction.destDomainId, transaction.mintTxHash)
-			: undefined
+		transaction.mintTxHash ? getTxUrl(transaction.destDomainId, transaction.mintTxHash) : undefined
 	);
 </script>
 

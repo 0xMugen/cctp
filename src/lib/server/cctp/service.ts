@@ -7,20 +7,19 @@ import {
 	type ChainConfig
 } from './config.js';
 import { computeMessageHash, getTransferFees, getMessageFromTx } from './attestation.js';
-import { buildDepositForBurnTx, buildReceiveMessageTx, getApprovalTxData, type DepositForBurnParams } from './evm.js';
+import {
+	buildDepositForBurnTx,
+	buildReceiveMessageTx,
+	getApprovalTxData,
+	type DepositForBurnParams
+} from './evm.js';
 import { buildStarknetBurnMulticall, buildStarknetMintCall } from './starknet.js';
 import { buildSolanaBurnInstruction, buildSolanaMintInstruction } from './solana.js';
 import type { Hex, Address } from 'viem';
 import type { Call } from 'starknet';
 
 // Bridge transaction status
-export type BridgeStatus =
-	| 'initiated'
-	| 'burned'
-	| 'attested'
-	| 'minting'
-	| 'completed'
-	| 'failed';
+export type BridgeStatus = 'initiated' | 'burned' | 'attested' | 'minting' | 'completed' | 'failed';
 export type AttestationStatus = 'pending' | 'complete' | 'failed';
 
 export interface BridgeTransaction {
@@ -355,7 +354,13 @@ export class CCTPService {
 					     attestation_attempts = attestation_attempts + 1, last_attestation_check = NOW(),
 					     updated_at = NOW()
 					 WHERE id = $5`,
-					[messageData.message, messageHash, messageData.eventNonce, messageData.attestation, bridgeId]
+					[
+						messageData.message,
+						messageHash,
+						messageData.eventNonce,
+						messageData.attestation,
+						bridgeId
+					]
 				);
 				console.log(`[CCTP] Got message AND attestation via V2 API for tx ${tx.burnTxHash}`);
 				return messageData.attestation;
@@ -426,7 +431,6 @@ export class CCTPService {
 			[]
 		);
 	}
-
 
 	/**
 	 * Build burn transaction data based on source chain type

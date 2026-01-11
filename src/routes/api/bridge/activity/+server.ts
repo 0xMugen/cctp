@@ -58,7 +58,6 @@ export const GET: RequestHandler = async ({ url }) => {
 			return [addr];
 		});
 
-
 		if (addresses.length === 0) {
 			return json({ error: 'At least one address is required' }, { status: 400 });
 		}
@@ -148,7 +147,12 @@ export const GET: RequestHandler = async ({ url }) => {
 				};
 
 				// Add mintTxData for claimable transactions (attested status + EVM destination only)
-				if (status === 'attested' && tx.attestation && tx.messageBytes && destConfig?.type === 'evm') {
+				if (
+					status === 'attested' &&
+					tx.attestation &&
+					tx.messageBytes &&
+					destConfig?.type === 'evm'
+				) {
 					try {
 						const mintTxData = buildReceiveMessageTx(
 							tx.destDomainId,
