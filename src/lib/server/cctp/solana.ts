@@ -1,5 +1,6 @@
 import { PublicKey, TransactionInstruction, SystemProgram } from '@solana/web3.js';
-import { getChainConfig, DOMAIN_IDS, STARKNET_DOMAIN_ID } from './config.js';
+import { getChainConfig } from '../app-config.js';
+import { DOMAIN_IDS, STARKNET_DOMAIN_ID } from './config.js';
 
 // Solana CCTP Program IDs (mainnet)
 export const CCTP_PROGRAM_IDS = {

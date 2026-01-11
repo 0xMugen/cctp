@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { db } from '$lib/server/db.js';
-import { getChainConfig } from '$lib/server/cctp/config.js';
+import { getChainConfig } from '$lib/server/app-config.js';
 import { buildReceiveMessageTx } from '$lib/server/cctp/evm.js';
 import { checkMessageDelivered } from '$lib/server/cctp/attestation.js';
 import type { Hex } from 'viem';

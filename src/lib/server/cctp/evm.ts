@@ -7,7 +7,7 @@ import {
 	pad,
 	type TransactionReceipt
 } from 'viem';
-import { getChainConfig } from './config.js';
+import { getChainConfig } from '../app-config.js';
 
 // CCTP V2 Contract ABIs
 export const TOKEN_MESSENGER_ABI = parseAbi([

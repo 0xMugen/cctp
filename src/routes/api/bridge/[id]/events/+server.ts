@@ -1,19 +1,10 @@
 import type { RequestHandler } from './$types';
-import { pool } from '$lib/server/database';
+import { pool, type PoolClient } from '$lib/server/database';
 import { cctpService } from '$lib/server/cctp/service.js';
 
 /**
  * GET /api/bridge/[id]/events
  * Server-Sent Events endpoint for real-time bridge status updates
- *
- * Usage (frontend):
- * ```javascript
- * const eventSource = new EventSource(`/api/bridge/${bridgeId}/events`);
- * eventSource.onmessage = (event) => {
- *   const data = JSON.parse(event.data);
- *   console.log('Status update:', data);
- * };
- * ```
  */
 export const GET: RequestHandler = async ({ params }) => {
 	const { id } = params;
@@ -27,34 +18,37 @@ export const GET: RequestHandler = async ({ params }) => {
 		});
 	}
 
-	// Create the SSE stream
+	let client: PoolClient | null = null;
+	let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+	let isClosing = false;
+
+	const cleanup = () => {
+		if (isClosing) return;
+		isClosing = true;
+
+		console.log(`Cleaning up SSE connection for bridge ${id}`);
+		if (heartbeatInterval) {
+			clearInterval(heartbeatInterval);
+			heartbeatInterval = null;
+		}
+		if (client) {
+			client.query('UNLISTEN bridge_status_changed').catch(() => { });
+			client.release();
+			client = null;
+		}
+	};
+
 	const stream = new ReadableStream({
 		async start(controller) {
 			const encoder = new TextEncoder();
-			let client: Awaited<ReturnType<typeof pool.connect>> | null = null;
-			let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
-			let isClosing = false;
 
 			const sendEvent = (data: object) => {
 				if (!isClosing) {
 					try {
 						controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
 					} catch {
-						// Stream might be closed
+						// Stream might be closed, cleanup will handle it
 					}
-				}
-			};
-
-			const cleanup = () => {
-				isClosing = true;
-				if (heartbeatInterval) {
-					clearInterval(heartbeatInterval);
-					heartbeatInterval = null;
-				}
-				if (client) {
-					client.query('UNLISTEN bridge_status_changed').catch(() => {});
-					client.release();
-					client = null;
 				}
 			};
 
@@ -83,14 +77,8 @@ export const GET: RequestHandler = async ({ params }) => {
 					if (msg.channel === 'bridge_status_changed' && msg.payload) {
 						try {
 							const data = JSON.parse(msg.payload);
-							// Only send updates for this specific bridge
 							if (data.id === id) {
-								sendEvent({
-									type: 'update',
-									...data
-								});
-
-								// Close stream if bridge is completed or failed
+								sendEvent({ type: 'update', ...data });
 								if (data.status === 'completed' || data.status === 'failed') {
 									sendEvent({ type: 'close', reason: `Bridge ${data.status}` });
 									cleanup();
@@ -111,16 +99,8 @@ export const GET: RequestHandler = async ({ params }) => {
 					controller.close();
 				});
 
-				// Heartbeat every 30 seconds to keep connection alive
 				heartbeatInterval = setInterval(() => {
-					if (!isClosing) {
-						try {
-							controller.enqueue(encoder.encode(`: heartbeat\n\n`));
-						} catch {
-							// Stream closed, cleanup
-							cleanup();
-						}
-					}
+					sendEvent({ type: 'heartbeat' });
 				}, 30000);
 			} catch (error) {
 				console.error('Error setting up SSE stream:', error);
@@ -130,17 +110,17 @@ export const GET: RequestHandler = async ({ params }) => {
 		},
 
 		cancel() {
-			// Called when client disconnects
 			console.log(`SSE client disconnected for bridge ${id}`);
+			cleanup();
 		}
 	});
 
 	return new Response(stream, {
 		headers: {
 			'Content-Type': 'text/event-stream',
-			'Cache-Control': 'no-cache, no-store, must-revalidate',
+			'Cache-Control': 'no-cache',
 			Connection: 'keep-alive',
-			'X-Accel-Buffering': 'no' // Disable nginx buffering
+			'X-Accel-Buffering': 'no'
 		}
 	});
 };

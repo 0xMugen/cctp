@@ -6,6 +6,7 @@ import { migrateWithLock } from '$lib/server/migrate';
 import { db } from '$lib/server/db';
 import { setMigrationComplete, getMigrationState } from '$lib/server/migration-state';
 import { attestationWorker } from '$lib/server/cctp/attestation-worker';
+import { loadChainConfig } from '$lib/server/app-config.js';
 
 // Validate database connection on server startup
 let connectionValidated = false;
@@ -57,7 +58,7 @@ async function ensureDatabaseConnection(): Promise<void> {
 							} else {
 								console.log('✅ No pending migrations');
 							}
-							// Start CCTP attestation worker after migrations are complete
+							await loadChainConfig();
 							attestationWorker.start().catch((error) => {
 								console.error('Failed to start attestation worker:', error);
 							});
@@ -72,8 +73,8 @@ async function ensureDatabaseConnection(): Promise<void> {
 					}
 				} else if (!AUTO_MIGRATE) {
 					console.log('ℹ️  Auto-migration disabled (AUTO_MIGRATE=false)');
-					setMigrationComplete(true); // Mark as complete since we're skipping
-					// Start CCTP attestation worker
+					setMigrationComplete(true);
+					await loadChainConfig();
 					attestationWorker.start().catch((error) => {
 						console.error('Failed to start attestation worker:', error);
 					});

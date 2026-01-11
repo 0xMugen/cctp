@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { cctpService } from '$lib/server/cctp/service.js';
-import { getChainConfig } from '$lib/server/cctp/config.js';
+import { getChainConfig } from '$lib/server/app-config.js';
 import { checkMessageDelivered } from '$lib/server/cctp/attestation.js';
 
 /**

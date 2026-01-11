@@ -1,5 +1,6 @@
 import { type Call, cairo, type Uint256 } from 'starknet';
-import { getChainConfig, STARKNET_DOMAIN_ID } from './config.js';
+import { getChainConfig } from '../app-config.js';
+import { STARKNET_DOMAIN_ID } from './config.js';
 
 // Starknet CCTP contract function selectors
 // Based on Circle's official Starknet CCTP documentation

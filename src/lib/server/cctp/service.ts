@@ -1,11 +1,7 @@
 import { db } from '../db.js';
-import {
-	getChainConfig,
-	getSupportedChains,
-	isValidBridgePair,
-	STARKNET_DOMAIN_ID,
-	type ChainConfig
-} from './config.js';
+import { getChainConfig, getAllChainConfigs } from '../app-config.js';
+import type { ChainConfig } from '../app-config.js';
+import { isValidBridgePair, STARKNET_DOMAIN_ID } from './config.js';
 import { computeMessageHash, getTransferFees, getMessageFromTx } from './attestation.js';
 import {
 	buildDepositForBurnTx,
@@ -105,7 +101,7 @@ export class CCTPService {
 	 * Get supported chains for bridging
 	 */
 	getChains(): ChainConfig[] {
-		return getSupportedChains();
+		return getAllChainConfigs();
 	}
 
 	/**
