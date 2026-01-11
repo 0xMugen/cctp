@@ -36,8 +36,8 @@ export const CHAINS: Record<number, ChainConfig> = {
 		domainId: DOMAIN_IDS.ETHEREUM,
 		name: 'Ethereum',
 		type: 'evm',
-		tokenMessenger: '0xbd3fa81b58ba92a82136038b25adec7066af3155',
-		messageTransmitter: '0x0a992d191deec32afe36203ad87d7d289a738f81',
+		tokenMessenger: '0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d', // V2
+		messageTransmitter: '0x81D40F21F12A8F0E3252Bccb954D722d4c464B64', // V2
 		usdc: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
 		explorerUrl: 'https://etherscan.io'
 	},

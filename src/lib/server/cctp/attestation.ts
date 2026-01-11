@@ -127,11 +127,15 @@ export async function getMessageFromTx(
 		// V2 returns an array of messages, get the first one
 		if (data.messages && data.messages.length > 0) {
 			const msg = data.messages[0];
+			// Only return attestation if it's actual hex data (not "PENDING" string)
+			const hasValidAttestation = msg.attestation &&
+				msg.attestation !== 'PENDING' &&
+				msg.attestation.startsWith('0x');
 			return {
 				message: msg.message,
 				eventNonce: msg.eventNonce,
 				status: msg.status,
-				attestation: msg.attestation || undefined
+				attestation: hasValidAttestation ? msg.attestation : undefined
 			};
 		}
 

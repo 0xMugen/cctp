@@ -6,6 +6,7 @@ import { migrateWithLock } from '$lib/server/migrate';
 import { db } from '$lib/server/db';
 import { setMigrationComplete, getMigrationState } from '$lib/server/migration-state';
 import { attestationWorker } from '$lib/server/cctp/attestation-worker';
+import { mintWorker } from '$lib/server/cctp/mint-worker';
 
 // Validate database connection on server startup
 let connectionValidated = false;
@@ -57,9 +58,12 @@ async function ensureDatabaseConnection(): Promise<void> {
 							} else {
 								console.log('✅ No pending migrations');
 							}
-							// Start CCTP attestation worker after migrations are complete
+							// Start CCTP workers after migrations are complete
 							attestationWorker.start().catch((error) => {
 								console.error('Failed to start attestation worker:', error);
+							});
+							mintWorker.start().catch((error) => {
+								console.error('Failed to start mint worker:', error);
 							});
 						} else {
 							const error = migrationResult.error || new Error('Unknown migration error');
@@ -73,9 +77,12 @@ async function ensureDatabaseConnection(): Promise<void> {
 				} else if (!AUTO_MIGRATE) {
 					console.log('ℹ️  Auto-migration disabled (AUTO_MIGRATE=false)');
 					setMigrationComplete(true); // Mark as complete since we're skipping
-					// Start CCTP attestation worker
+					// Start CCTP workers
 					attestationWorker.start().catch((error) => {
 						console.error('Failed to start attestation worker:', error);
+					});
+					mintWorker.start().catch((error) => {
+						console.error('Failed to start mint worker:', error);
 					});
 				}
 
@@ -187,7 +194,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 // Graceful shutdown handling
 process.on('SIGINT', async () => {
 	console.log('Received SIGINT, shutting down...');
-	await attestationWorker.stop();
+	await Promise.all([attestationWorker.stop(), mintWorker.stop()]);
 	try {
 		await pool.end();
 		console.log('Database connections closed');
@@ -199,7 +206,7 @@ process.on('SIGINT', async () => {
 
 process.on('SIGTERM', async () => {
 	console.log('Received SIGTERM, shutting down...');
-	await attestationWorker.stop();
+	await Promise.all([attestationWorker.stop(), mintWorker.stop()]);
 	try {
 		await pool.end();
 		console.log('Database connections closed');

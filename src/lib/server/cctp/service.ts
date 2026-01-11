@@ -280,7 +280,11 @@ export class CCTPService {
 			return tx.attestation;
 		}
 
-		if (!tx.messageHash && tx.burnTxHash) {
+		// keccak256 of empty data - this is an invalid message hash
+		const EMPTY_HASH = '0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470';
+		const hasValidMessageHash = tx.messageHash && tx.messageHash !== EMPTY_HASH;
+
+		if (!hasValidMessageHash && tx.burnTxHash) {
 			try {
 				const messageData = await getMessageFromTx(tx.sourceDomainId, tx.burnTxHash);
 				if (messageData) {
@@ -315,8 +319,8 @@ export class CCTPService {
 			}
 		}
 
-		// Still no message hash - can't check attestation
-		if (!tx.messageHash) {
+		// Still no valid message hash - can't check attestation via V1 API
+		if (!tx.messageHash || tx.messageHash === EMPTY_HASH) {
 			return null;
 		}
 
@@ -392,6 +396,32 @@ export class CCTPService {
 			   AND status = 'burned'
 			   AND burn_tx_hash IS NOT NULL
 			   AND (last_attestation_check IS NULL OR last_attestation_check < NOW() - INTERVAL '5 seconds')
+			 ORDER BY created_at ASC
+			 LIMIT 100`,
+			[]
+		);
+	}
+
+	/**
+	 * Get all transactions that are attested but not yet minted (for mint worker)
+	 */
+	async getPendingMints(): Promise<BridgeTransaction[]> {
+		return db.execute<BridgeTransaction>(
+			`SELECT
+				id, user_address as "userAddress", source_domain_id as "sourceDomainId",
+				dest_domain_id as "destDomainId", amount, recipient_address as "recipientAddress",
+				burn_tx_hash as "burnTxHash", message_hash as "messageHash",
+				message_bytes as "messageBytes", nonce, attestation,
+				attestation_status as "attestationStatus", attestation_attempts as "attestationAttempts",
+				mint_tx_hash as "mintTxHash", status, error_message as "errorMessage",
+				created_at as "createdAt", updated_at as "updatedAt"
+			 FROM bridge_transactions
+			 WHERE status = 'attested'
+			   AND attestation IS NOT NULL
+			   AND attestation LIKE '0x%'
+			   AND message_bytes IS NOT NULL
+			   AND message_bytes LIKE '0x%'
+			   AND mint_tx_hash IS NULL
 			 ORDER BY created_at ASC
 			 LIMIT 100`,
 			[]
