@@ -36,6 +36,72 @@ export const starknetState = derived(
 	})
 );
 
+const LAST_WALLET_KEY = 'starknet_last_wallet';
+
+/**
+ * Setup wallet after connection (shared logic)
+ */
+async function setupWallet(wallet: StarknetWallet, saveToStorage = true): Promise<boolean> {
+	try {
+		const accounts = await wallet.request({ type: 'wallet_requestAccounts' });
+		const address = accounts[0];
+
+		if (address) {
+			starknetWallet.set(wallet);
+			starknetAddress.set(address);
+			starknetConnected.set(true);
+
+			if (saveToStorage && wallet.id) {
+				localStorage.setItem(LAST_WALLET_KEY, wallet.id);
+			}
+
+			const provider = new RpcProvider({ nodeUrl: STARKNET_RPC });
+			const walletAccount = new WalletAccount(provider, wallet);
+			starknetAccount.set(walletAccount);
+
+			wallet.on?.('accountsChanged', (newAccounts: string[]) => {
+				if (!newAccounts || newAccounts.length === 0) {
+					disconnectStarknet();
+				} else {
+					starknetAddress.set(newAccounts[0]);
+				}
+			});
+
+			return true;
+		}
+	} catch (error) {
+		console.error('Failed to setup wallet:', error);
+	}
+	return false;
+}
+
+/**
+ * Initialize Starknet - attempt to restore previous wallet connection
+ */
+export async function initStarknet(): Promise<void> {
+	if (typeof window === 'undefined') return;
+
+	const lastWalletId = localStorage.getItem(LAST_WALLET_KEY);
+	if (!lastWalletId) return;
+
+	try {
+		const { connect } = await import('@starknet-io/get-starknet');
+
+		const wallet = await connect({
+			modalMode: 'neverAsk',
+			modalTheme: 'dark',
+			include: [lastWalletId]
+		});
+
+		if (wallet) {
+			await setupWallet(wallet as unknown as StarknetWallet, false);
+		}
+	} catch (error) {
+		console.debug('No previous Starknet wallet to restore:', error);
+		localStorage.removeItem(LAST_WALLET_KEY);
+	}
+}
+
 /**
  * Connect to a Starknet wallet (ArgentX, Braavos, etc.)
  */
@@ -55,30 +121,7 @@ export async function connectStarknet(): Promise<void> {
 		});
 
 		if (wallet) {
-			starknetWallet.set(wallet as unknown as StarknetWallet);
-
-			// Request accounts
-			const accounts = await wallet.request({ type: 'wallet_requestAccounts' });
-			const address = accounts[0];
-
-			if (address) {
-				starknetAddress.set(address);
-				starknetConnected.set(true);
-
-				// Create WalletAccount for signing transactions
-				const provider = new RpcProvider({ nodeUrl: STARKNET_RPC });
-				const walletAccount = new WalletAccount(provider, wallet);
-				starknetAccount.set(walletAccount);
-
-				// Listen for account changes
-				wallet.on?.('accountsChanged', (newAccounts: string[]) => {
-					if (newAccounts.length === 0) {
-						disconnectStarknet();
-					} else {
-						starknetAddress.set(newAccounts[0]);
-					}
-				});
-			}
+			await setupWallet(wallet as unknown as StarknetWallet);
 		}
 	} catch (error) {
 		console.error('Failed to connect Starknet wallet:', error);
@@ -93,6 +136,8 @@ export async function connectStarknet(): Promise<void> {
  */
 export async function disconnectStarknet(): Promise<void> {
 	if (typeof window === 'undefined') return;
+
+	localStorage.removeItem(LAST_WALLET_KEY);
 
 	try {
 		const { disconnect } = await import('@starknet-io/get-starknet');

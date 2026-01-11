@@ -2,6 +2,7 @@
 	import '../app.css';
 	import { onMount } from 'svelte';
 	import { wagmiConfig, syncEvmState } from '$lib/stores/evm';
+	import { initStarknet } from '$lib/stores/starknet';
 	import { loadChains } from '$lib/stores/bridge';
 
 	let { children } = $props();
@@ -42,6 +43,8 @@
 		} catch (error) {
 			console.error('Failed to initialize wagmi:', error);
 		}
+
+		await initStarknet();
 
 		// Load bridge chains
 		await loadChains();
