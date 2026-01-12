@@ -1,0 +1,78 @@
+# Linting Workflow
+#
+# This workflow runs code quality checks including:
+# - Prettier formatting checks
+# - ESLint code analysis
+# - Svelte type checking
+#
+# Runs on all pushes and pull requests to ensure code quality standards.
+
+name: Lint
+
+on:
+  workflow_call: # Allow this workflow to be called by other workflows
+
+jobs:
+  lint:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: 'pnpm'
+
+      - name: Verify setup
+        run: |
+          echo 'Node.js version:' && node --version
+          echo 'pnpm version:' && pnpm --version
+
+      - name: Install dependencies
+        run: |
+          pnpm install --frozen-lockfile
+
+      - name: Setup environment
+        run: |
+          echo "🔧 Setting up environment..."
+          cp .env.example .env
+
+      - name: Run linting (Prettier + ESLint)
+        run: |
+          echo "🎨 Running linting checks (Prettier + ESLint)..."
+          pnpm run lint
+
+      - name: Run Svelte type checking
+        run: |
+          echo "🔧 Running Svelte type checking..."
+          pnpm run check
+
+      - name: Lint summary
+        if: success()
+        run: |
+          echo "## ✅ Linting Passed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All code quality checks passed successfully:" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Prettier formatting" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ ESLint analysis" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Svelte type checking" >> $GITHUB_STEP_SUMMARY
+
+      - name: Lint failure summary
+        if: failure()
+        run: |
+          echo "## ❌ Linting Failed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Some code quality checks failed. Please review the logs above and fix the issues." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "💡 **Quick fixes:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Run \`pnpm run format\` to auto-fix formatting issues" >> $GITHUB_STEP_SUMMARY
+          echo "- Run \`pnpm run lint\` locally to see detailed ESLint errors" >> $GITHUB_STEP_SUMMARY
+          echo "- Run \`pnpm run check\` to verify TypeScript/Svelte types" >> $GITHUB_STEP_SUMMARY
