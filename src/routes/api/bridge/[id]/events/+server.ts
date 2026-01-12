@@ -32,7 +32,7 @@ export const GET: RequestHandler = async ({ params }) => {
 			heartbeatInterval = null;
 		}
 		if (client) {
-			client.query('UNLISTEN bridge_status_changed').catch(() => { });
+			client.query('UNLISTEN bridge_status_changed').catch(() => {});
 			client.release();
 			client = null;
 		}

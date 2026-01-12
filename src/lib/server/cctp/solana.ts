@@ -54,7 +54,9 @@ export function evmAddressToBuffer(address: string): Buffer {
 /**
  * Find the PDA for the message transmitter authority
  */
-export function findMessageTransmitterAuthority(messageTransmitterProgramId: string): [PublicKey, number] {
+export function findMessageTransmitterAuthority(
+	messageTransmitterProgramId: string
+): [PublicKey, number] {
 	return PublicKey.findProgramAddressSync(
 		[Buffer.from('message_transmitter_authority')],
 		new PublicKey(messageTransmitterProgramId)
@@ -74,7 +76,10 @@ export function findTokenMessengerMinter(tokenMessengerProgramId: string): [Publ
 /**
  * Find the PDA for the local token account
  */
-export function findLocalToken(mint: PublicKey, tokenMessengerProgramId: string): [PublicKey, number] {
+export function findLocalToken(
+	mint: PublicKey,
+	tokenMessengerProgramId: string
+): [PublicKey, number] {
 	return PublicKey.findProgramAddressSync(
 		[Buffer.from('local_token'), mint.toBuffer()],
 		new PublicKey(tokenMessengerProgramId)
@@ -84,7 +89,10 @@ export function findLocalToken(mint: PublicKey, tokenMessengerProgramId: string)
 /**
  * Find the PDA for the remote token messenger
  */
-export function findRemoteTokenMessenger(remoteDomain: number, tokenMessengerProgramId: string): [PublicKey, number] {
+export function findRemoteTokenMessenger(
+	remoteDomain: number,
+	tokenMessengerProgramId: string
+): [PublicKey, number] {
 	const remoteDomainBuffer = Buffer.alloc(4);
 	remoteDomainBuffer.writeUInt32LE(remoteDomain);
 
@@ -126,10 +134,15 @@ export function buildSolanaBurnInstruction(params: SolanaDepositForBurnParams): 
 	const senderTokenAccount = new PublicKey(params.senderTokenAccount);
 
 	// Find PDAs
-	const [messageTransmitterAuthority] = findMessageTransmitterAuthority(solanaConfig.messageTransmitter);
+	const [messageTransmitterAuthority] = findMessageTransmitterAuthority(
+		solanaConfig.messageTransmitter
+	);
 	const [tokenMessengerMinter] = findTokenMessengerMinter(solanaConfig.tokenMessenger);
 	const [localToken] = findLocalToken(usdcMint, solanaConfig.tokenMessenger);
-	const [remoteTokenMessenger] = findRemoteTokenMessenger(params.destinationDomain, solanaConfig.tokenMessenger);
+	const [remoteTokenMessenger] = findRemoteTokenMessenger(
+		params.destinationDomain,
+		solanaConfig.tokenMessenger
+	);
 
 	// Build instruction data
 	// Format: discriminator (8 bytes) + amount (8 bytes) + destination_domain (4 bytes) + mint_recipient (32 bytes)
@@ -183,7 +196,9 @@ export function buildSolanaMintInstruction(params: SolanaReceiveMessageParams): 
 	const recipient = new PublicKey(params.recipient);
 
 	// Find PDAs
-	const [messageTransmitterAuthority] = findMessageTransmitterAuthority(solanaConfig.messageTransmitter);
+	const [messageTransmitterAuthority] = findMessageTransmitterAuthority(
+		solanaConfig.messageTransmitter
+	);
 	const [tokenMessengerMinter] = findTokenMessengerMinter(solanaConfig.tokenMessenger);
 	const [localToken] = findLocalToken(usdcMint, solanaConfig.tokenMessenger);
 
